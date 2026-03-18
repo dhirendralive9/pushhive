@@ -138,7 +138,7 @@ function generateSDK(serverUrl) {
         .catch(function(err) {
           console.error('[PushHive] Service Worker registration failed:', err.message);
           console.error('[PushHive] Make sure /pushhive-sw.js exists at your site root.');
-          console.error('[PushHive] Create it with: importScripts(\'' + PushHive.serverUrl + '/sdk/pushhive-sw.js\');');
+          console.error('[PushHive] File contents: importScripts(' + PushHive.serverUrl + '/sdk/pushhive-sw.js)');
         });
     },
 
