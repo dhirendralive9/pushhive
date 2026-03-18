@@ -198,7 +198,7 @@ function generateSDK(serverUrl) {
       overlay.innerHTML =
         '<div style="position:fixed;bottom:0;left:0;right:0;background:#fff;color:#333;padding:24px;box-shadow:0 -4px 24px rgba(0,0,0,0.15);z-index:999999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;border-radius:16px 16px 0 0;">' +
         '<div style="font-weight:600;font-size:16px;margin-bottom:8px;">Open in Safari</div>' +
-        '<div style="font-size:14px;color:#666;margin-bottom:16px;">Push notifications on iOS require Safari. You\'re currently using a different browser.</div>' +
+        '<div style="font-size:14px;color:#666;margin-bottom:16px;">Push notifications on iOS require Safari. You are currently using a different browser.</div>' +
         '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:12px;background:#f5f5f5;border-radius:8px;">' +
         '<span style="font-size:24px;">1.</span><span>Copy this page URL</span></div>' +
         '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px;background:#f5f5f5;border-radius:8px;">' +
