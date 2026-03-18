@@ -22,7 +22,29 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ── PushHive App ────────────────────────────────────────────────
+  # ── Redis ───────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: pushhive-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    networks:
+      - pushhive-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  # ── PushHive App (API + Dashboard) ─────────────────────────────
   app:
     build: .
     container_name: pushhive-app
@@ -33,8 +55,12 @@ services:
       - .env
     environment:
       - MONGODB_URI=mongodb://mongo:27017/pushhive
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     depends_on:
       mongo:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - pushhive-net
@@ -44,8 +70,60 @@ services:
         max-size: "10m"
         max-file: "5"
 
+  # ── PushHive Worker (Queue processor) ──────────────────────────
+  worker:
+    build: .
+    container_name: pushhive-worker
+    restart: unless-stopped
+    command: ["node", "worker.js"]
+    env_file:
+      - .env
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/pushhive
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - WORKER_ID=worker-1
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-10}
+      - WORKER_RATE_LIMIT=${WORKER_RATE_LIMIT:-50}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - pushhive-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ── Additional Workers (uncomment to scale) ────────────────────
+  # worker-2:
+  #   build: .
+  #   container_name: pushhive-worker-2
+  #   restart: unless-stopped
+  #   command: ["node", "worker.js"]
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - MONGODB_URI=mongodb://mongo:27017/pushhive
+  #     - REDIS_HOST=redis
+  #     - REDIS_PORT=6379
+  #     - WORKER_ID=worker-2
+  #     - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-10}
+  #   depends_on:
+  #     mongo:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   networks:
+  #     - pushhive-net
+
 volumes:
   mongo_data:
+    driver: local
+  redis_data:
     driver: local
 
 networks:

@@ -22,7 +22,7 @@ A free alternative to OneSignal, PushEngage, and similar services. Host it yours
 ## Quick Install (Docker — Recommended)
 
 ```bash
-git clone https://github.com/dhirendralive9/pushhive.git
+git clone https://github.com/yourusername/pushhive.git
 cd pushhive
 sudo bash install.sh
 ```
@@ -40,7 +40,7 @@ The installer will:
 ## Manual Docker Setup
 
 ```bash
-git clone https://github.com/dhirendralive9/pushhive.git
+git clone https://github.com/yourusername/pushhive.git
 cd pushhive
 cp .env.example .env
 ```
@@ -59,7 +59,7 @@ docker compose exec app node seed.js admin@example.com yourpassword Admin
 ## Manual Setup (Without Docker)
 
 ```bash
-git clone https://github.com/dhirendralive9/pushhive.git
+git clone https://github.com/yourusername/pushhive.git
 cd pushhive
 npm install
 cp .env.example .env

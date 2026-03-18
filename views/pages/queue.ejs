@@ -1,0 +1,146 @@
+<%- include('../partials/header', { pageTitle: 'Queue', activePage: 'queue' }) %>
+
+<div class="page-header">
+  <h1>Queue Status</h1>
+  <a href="/dashboard/queue" class="btn btn-outline" onclick="this.innerHTML='Refreshing...'">Refresh</a>
+</div>
+
+<% if (typeof queueError !== 'undefined' && queueError) { %>
+<div class="alert alert-error">
+  Queue connection error: <%= queueError %>. Make sure Redis is running.
+</div>
+<% } %>
+
+<!-- Queue Stats -->
+<div class="stats-grid">
+  <% var totalWaiting = 0, totalActive = 0, totalCompleted = 0, totalFailed = 0;
+     if (queueStats) {
+       Object.values(queueStats).forEach(function(q) {
+         totalWaiting += q.waiting || 0;
+         totalActive += q.active || 0;
+         totalCompleted += q.completed || 0;
+         totalFailed += q.failed || 0;
+       });
+     } %>
+  <div class="stat-card">
+    <div class="stat-label">Waiting</div>
+    <div class="stat-value warning"><%= totalWaiting %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Active</div>
+    <div class="stat-value primary"><%= totalActive %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Completed</div>
+    <div class="stat-value success"><%= totalCompleted %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Failed</div>
+    <div class="stat-value" style="color:var(--danger)"><%= totalFailed %></div>
+  </div>
+</div>
+
+<!-- Active Campaigns -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Active Campaigns</span>
+  </div>
+  <% if (activeCampaigns.length === 0) { %>
+    <p class="text-muted text-sm">No campaigns currently sending.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Campaign</th><th>Site</th><th>Status</th><th>Targeted</th><th>Sent</th><th>Failed</th><th>Progress</th></tr></thead>
+      <tbody>
+        <% activeCampaigns.forEach(function(c) {
+          var progress = c.jobProgress ? (c.jobProgress.progress || 0) : 0;
+          var state = c.jobProgress ? c.jobProgress.state : c.status;
+        %>
+        <tr>
+          <td><a href="/dashboard/campaigns/<%= c._id %>" style="color:var(--primary-hover);text-decoration:none;font-weight:500;"><%= c.title %></a></td>
+          <td class="text-muted"><%= c.siteId ? c.siteId.name : '—' %></td>
+          <td>
+            <span class="badge badge-<%= state === 'active' || state === 'sending' ? 'warning' : state === 'completed' ? 'success' : state === 'failed' ? 'danger' : 'primary' %>">
+              <%= state %>
+            </span>
+          </td>
+          <td><%= (c.stats.targeted || 0).toLocaleString() %></td>
+          <td><%= (c.stats.sent || 0).toLocaleString() %></td>
+          <td><%= (c.stats.failed || 0).toLocaleString() %></td>
+          <td style="min-width:160px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="flex:1;height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden;">
+                <div style="width:<%= progress %>%;height:100%;background:var(--primary);border-radius:3px;transition:width 0.3s;"></div>
+              </div>
+              <span class="text-xs text-muted"><%= progress %>%</span>
+            </div>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<!-- Queue Details -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Queue Breakdown</span>
+  </div>
+  <% if (queueStats && Object.keys(queueStats).length > 0) { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Queue</th><th>Waiting</th><th>Active</th><th>Delayed</th><th>Completed</th><th>Failed</th></tr></thead>
+      <tbody>
+        <% Object.entries(queueStats).forEach(function([key, q]) { %>
+        <tr>
+          <td><strong><%= q.name %></strong></td>
+          <td><%= q.waiting %></td>
+          <td><%= q.active > 0 ? '<span class="badge badge-warning">' + q.active + '</span>' : '0' %></td>
+          <td><%= q.delayed %></td>
+          <td class="text-muted"><%= q.completed.toLocaleString() %></td>
+          <td><%= q.failed > 0 ? '<span class="badge badge-danger">' + q.failed + '</span>' : '0' %></td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } else { %>
+    <p class="text-muted text-sm">No queue data available. Make sure Redis is running and workers are started.</p>
+  <% } %>
+</div>
+
+<!-- Scaling Info -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Scaling Workers</span>
+  </div>
+  <p class="text-sm text-muted" style="margin-bottom:12px;">
+    Need more throughput? Add more worker containers to process batches in parallel.
+  </p>
+  <div class="code-block">
+    <button class="copy-btn" onclick="copyToClipboard(document.getElementById('scale-cmd').textContent, this)">Copy</button>
+    <pre id="scale-cmd"># Scale to 4 workers
+docker compose up -d --scale worker=4
+
+# Or uncomment worker-2 in docker-compose.yml
+# and add worker-3, worker-4 with unique WORKER_ID</pre>
+  </div>
+  <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-top:12px;">
+    <table>
+      <tr><td class="text-muted text-sm" style="padding:4px 16px 4px 0;"><strong>1 worker</strong></td><td class="text-sm">~500 sends/sec → 1M subs in ~33 min</td></tr>
+      <tr><td class="text-muted text-sm" style="padding:4px 16px 4px 0;"><strong>4 workers</strong></td><td class="text-sm">~2000 sends/sec → 1M subs in ~8 min</td></tr>
+      <tr><td class="text-muted text-sm" style="padding:4px 16px 4px 0;"><strong>10 workers</strong></td><td class="text-sm">~5000 sends/sec → 1M subs in ~3 min</td></tr>
+    </table>
+  </div>
+</div>
+
+<script>
+// Auto-refresh every 5 seconds when there are active campaigns
+<% if (activeCampaigns.length > 0) { %>
+setTimeout(function() { window.location.reload(); }, 5000);
+<% } %>
+</script>
+
+<%- include('../partials/footer') %>

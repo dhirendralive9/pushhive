@@ -71,16 +71,20 @@ app.set('views', path.join(__dirname, 'views'));
 
 // ── Health Check & Version ──────────────────────────────────────
 const pkg = require('./package.json');
+const { ping: pingRedis } = require('./services/redis');
 
 app.get('/health', async (req, res) => {
   try {
-    const mongoState = mongoose.connection.readyState; // 1 = connected
+    const mongoState = mongoose.connection.readyState;
+    const redisOk = await pingRedis();
     const uptime = process.uptime();
+    const status = (mongoState === 1 && redisOk) ? 'ok' : 'degraded';
     res.json({
-      status: mongoState === 1 ? 'ok' : 'degraded',
+      status,
       version: pkg.version,
       uptime: Math.floor(uptime),
       mongo: mongoState === 1 ? 'connected' : 'disconnected',
+      redis: redisOk ? 'connected' : 'disconnected',
       memory: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
       timestamp: new Date().toISOString()
     });

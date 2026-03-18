@@ -34,7 +34,7 @@
           </td>
           <td class="text-muted"><%= c.siteId ? c.siteId.name : '—' %></td>
           <td>
-            <span class="badge badge-<%= c.status === 'sent' ? 'success' : c.status === 'sending' ? 'warning' : c.status === 'failed' ? 'danger' : c.status === 'scheduled' ? 'warning' : 'primary' %>">
+            <span class="badge badge-<%= c.status === 'sent' ? 'success' : (c.status === 'sending' || c.status === 'queued') ? 'warning' : c.status === 'failed' ? 'danger' : c.status === 'scheduled' ? 'warning' : 'primary' %>">
               <%= c.status %>
             </span>
           </td>

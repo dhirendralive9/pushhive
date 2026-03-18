@@ -2,6 +2,47 @@
 
 All notable changes to PushHive will be documented in this file.
 
+## [2.0.0] - 2026-03-18
+
+### Added
+- **BullMQ + Redis job queue** — campaigns are now processed asynchronously via a dedicated worker process
+  - Campaign sends return immediately (queued), workers process batches in the background
+  - Batches of 500 subscribers sent with configurable concurrency (default: 10 parallel batches)
+  - Automatic retry with exponential backoff (3 attempts per failed batch)
+  - Progress tracking: real-time percentage visible in dashboard and via API
+  - Bulk deactivation of expired subscriptions (410/404) in single MongoDB operation
+- **Separate worker process** (`worker.js`) — runs independently from the API server
+  - 4 specialized workers: campaign orchestrator, batch sender, completion finalizer, subscription cleanup
+  - Configurable concurrency via `WORKER_CONCURRENCY` env var
+  - Rate limiting via `WORKER_RATE_LIMIT` env var
+  - Graceful shutdown on SIGTERM/SIGINT (finishes active batches before exiting)
+- **Redis** added to Docker stack — used for job queue, future caching, session store
+  - Persistent storage with AOF (append-only file)
+  - 256MB memory limit with LRU eviction
+  - Health check integrated
+- **Queue status dashboard** — new "Queue" page in admin panel
+  - Live stats: waiting, active, completed, failed jobs across all queues
+  - Active campaign progress bars with auto-refresh
+  - Queue breakdown table per queue type
+  - Scaling guide with worker throughput estimates
+- **Horizontal scaling** — add more worker containers for higher throughput
+  - `docker compose up -d --scale worker=4` for 4 parallel workers
+  - Each worker handles ~500 concurrent sends → 4 workers = ~2000/sec
+- **Campaign progress API** — `GET /api/v1/campaigns/:id/progress` returns live job state and percentage
+- **New campaign status: `queued`** — campaign is in the queue but not yet being processed by a worker
+
+### Changed
+- Campaign sends are now non-blocking (returns immediately with job ID)
+- Health check endpoint now includes Redis connection status
+- Scheduler service is now a thin wrapper that queues campaigns via Bull instead of processing them in-process
+- Notifications service refactored to use queue for bulk operations, direct sends for test notifications
+- Events are created with `Event.create()` (fire-and-forget) instead of `new Event().save()` for better performance
+- Subscriber deactivation uses bulk `updateMany` instead of individual updates
+
+### Infrastructure
+- Docker Compose now runs 4 services: mongo, redis, app, worker
+- Redis data persisted in `redis_data` Docker volume
+
 ## [1.1.0] - 2026-03-18
 
 ### Added

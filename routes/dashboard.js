@@ -201,97 +201,27 @@ router.post('/campaigns', async (req, res) => {
   }
 });
 
-// Send campaign
+// Send campaign (via queue — returns immediately)
 router.post('/campaigns/:id/send', async (req, res) => {
   try {
     const campaign = await Campaign.findById(req.params.id);
     if (!campaign) { req.session.error = 'Campaign not found'; return res.redirect('/dashboard/campaigns'); }
-
-    campaign.status = 'sending';
-    await campaign.save();
-
-    // Get target subscribers
-    const filter = { siteId: campaign.siteId, active: true };
-    if (!campaign.targetAll && campaign.targetTags.length > 0) {
-      filter.tags = { $in: campaign.targetTags };
+    if (campaign.status === 'sending' || campaign.status === 'queued') {
+      req.session.error = 'Campaign is already being sent';
+      return res.redirect('/dashboard/campaigns');
     }
 
-    const subscribers = await Subscriber.find(filter);
-    campaign.stats.targeted = subscribers.length;
-
-    // Configure web-push
-    webpush.setVapidDetails(
-      `mailto:${process.env.VAPID_EMAIL}`,
-      process.env.VAPID_PUBLIC_KEY,
-      process.env.VAPID_PRIVATE_KEY
-    );
-
-    const notificationUrl = campaign.buildUrl();
-    const payload = JSON.stringify({
-      title: campaign.title,
-      body: campaign.body,
-      icon: campaign.icon || '',
-      image: campaign.image || '',
-      badge: campaign.badge || '',
-      url: notificationUrl,
-      campaignId: campaign._id.toString(),
-      siteId: campaign.siteId.toString(),
-      actions: campaign.actions || [],
-      utm: campaign.utm
-    });
-
-    // Send in batches
-    const BATCH_SIZE = 500;
-    let sent = 0, failed = 0;
-
-    for (let i = 0; i < subscribers.length; i += BATCH_SIZE) {
-      const batch = subscribers.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map(sub =>
-          webpush.sendNotification(sub.subscription, payload)
-            .then(() => {
-              sent++;
-              // Log delivery event
-              new Event({
-                siteId: campaign.siteId,
-                campaignId: campaign._id,
-                subscriberId: sub._id,
-                type: 'delivered',
-                browser: sub.browser,
-                os: sub.os,
-                device: sub.device
-              }).save().catch(() => {});
-            })
-            .catch(async (err) => {
-              failed++;
-              // Remove invalid subscriptions (410 Gone)
-              if (err.statusCode === 410 || err.statusCode === 404) {
-                await Subscriber.findByIdAndUpdate(sub._id, { active: false, unsubscribedAt: new Date() });
-                await Site.findByIdAndUpdate(campaign.siteId, { $inc: { subscriberCount: -1 } });
-              }
-              new Event({
-                siteId: campaign.siteId,
-                campaignId: campaign._id,
-                subscriberId: sub._id,
-                type: 'failed'
-              }).save().catch(() => {});
-            })
-        )
-      );
-    }
-
-    campaign.stats.sent = sent;
-    campaign.stats.failed = failed;
-    campaign.stats.delivered = sent; // Approximate: sent ≈ delivered for web push
-    campaign.status = 'sent';
-    campaign.sentAt = new Date();
+    // Queue campaign for async processing by workers
+    const { queueCampaign } = require('../services/queue');
+    campaign.status = 'queued';
     await campaign.save();
+    await queueCampaign(campaign._id);
 
-    req.session.success = `Campaign sent to ${sent} subscribers (${failed} failed)`;
+    req.session.success = `Campaign "${campaign.title}" queued for sending. Track progress on the campaign detail page.`;
     res.redirect('/dashboard/campaigns');
   } catch (err) {
     console.error('Send error:', err);
-    req.session.error = 'Failed to send campaign: ' + err.message;
+    req.session.error = 'Failed to queue campaign: ' + err.message;
     res.redirect('/dashboard/campaigns');
   }
 });
@@ -416,6 +346,29 @@ router.get('/analytics', async (req, res) => {
   } catch (err) {
     console.error('Analytics error:', err);
     res.render('pages/error', { message: 'Failed to load analytics' });
+  }
+});
+
+// ── Queue Status ────────────────────────────────────────────────
+router.get('/queue', async (req, res) => {
+  try {
+    const { getQueueStats, getCampaignJobProgress } = require('../services/queue');
+    const queueStats = await getQueueStats();
+
+    // Get recent sending/queued campaigns with progress
+    const activeCampaigns = await Campaign.find({
+      status: { $in: ['queued', 'sending'] }
+    }).populate('siteId', 'name').lean();
+
+    // Attach job progress to each campaign
+    for (const campaign of activeCampaigns) {
+      campaign.jobProgress = await getCampaignJobProgress(campaign._id);
+    }
+
+    res.render('pages/queue', { queueStats, activeCampaigns });
+  } catch (err) {
+    console.error('Queue status error:', err);
+    res.render('pages/queue', { queueStats: {}, activeCampaigns: [], queueError: err.message });
   }
 });
 

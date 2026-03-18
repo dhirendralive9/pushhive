@@ -5,8 +5,8 @@ const Site = require('../models/Site');
 const Subscriber = require('../models/Subscriber');
 const Campaign = require('../models/Campaign');
 const Event = require('../models/Event');
-const { sendTestNotification, getCampaignStats, cleanupSubscriptions } = require('../services/notifications');
-const scheduler = require('../services/scheduler');
+const { sendTestNotification, getCampaignStats, cleanupSubscriptions, getCampaignProgress } = require('../services/notifications');
+const { queueCampaign } = require('../services/queue');
 
 router.use(sdkCors);
 router.use(requireApiKey);
@@ -178,20 +178,38 @@ router.post('/campaigns', async (req, res) => {
   }
 });
 
-// Send campaign immediately
+// Send campaign immediately (via queue)
 router.post('/campaigns/:id/send', async (req, res) => {
   try {
     const campaign = await Campaign.findOne({ _id: req.params.id, siteId: req.site._id });
     if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
-    if (campaign.status === 'sent' || campaign.status === 'sending') {
-      return res.status(400).json({ error: 'Campaign already sent or sending' });
+    if (['sent', 'sending', 'queued'].includes(campaign.status)) {
+      return res.status(400).json({ error: `Campaign already ${campaign.status}` });
     }
 
-    // Send asynchronously
-    res.json({ success: true, message: 'Campaign queued for sending' });
-    scheduler.sendCampaign(campaign);
+    campaign.status = 'queued';
+    await campaign.save();
+    const job = await queueCampaign(campaign._id);
+
+    res.json({
+      success: true,
+      message: 'Campaign queued for sending',
+      jobId: job.id,
+      campaignId: campaign._id
+    });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to send campaign' });
+    res.status(500).json({ error: 'Failed to queue campaign' });
+  }
+});
+
+// Get campaign progress (live from queue)
+router.get('/campaigns/:id/progress', async (req, res) => {
+  try {
+    const progress = await getCampaignProgress(req.params.id);
+    if (!progress) return res.status(404).json({ error: 'No active job found' });
+    res.json({ success: true, data: progress });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get progress' });
   }
 });
 
