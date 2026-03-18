@@ -34,6 +34,15 @@ All notable changes to PushHive will be documented in this file.
 - **Horizontal scaling** — `docker compose up -d --scale worker=4`
 - **Campaign progress API** — `GET /api/v1/campaigns/:id/progress`
 - **New campaign statuses**: `queued`, `ab_testing`, `ab_waiting`, `ab_sending_winner`
+- **Webhooks** — real-time HTTP callbacks for event-driven integrations
+  - 7 event types: `subscriber.new`, `subscriber.unsubscribe`, `campaign.sent`, `campaign.failed`, `notification.clicked`, `notification.dismissed`, `ab_test.winner`
+  - HMAC-SHA256 payload signing with per-webhook secret key
+  - 5 retries with exponential backoff per delivery
+  - Auto-disable after 10 consecutive failures
+  - Delivery logs with status codes, response times, attempt counts (auto-expire after 30 days)
+  - Dashboard: create, toggle, delete, test webhooks; view delivery logs
+  - REST API: full webhook CRUD via `/api/v1/webhooks`
+  - Rate limited: max 20 deliveries/second
 
 ### Changed
 - Campaign sends are now non-blocking (returns immediately with job ID)

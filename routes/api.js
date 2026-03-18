@@ -6,6 +6,7 @@ const Site = require('../models/Site');
 const Event = require('../models/Event');
 const Campaign = require('../models/Campaign');
 const webpush = require('web-push');
+const webhooks = require('../services/webhooks');
 
 // Apply CORS to all API routes
 router.use(sdkCors);
@@ -66,6 +67,15 @@ router.post('/subscribe', requireApiKey, async (req, res) => {
       }
     }
 
+    // Trigger webhook
+    webhooks.fire('subscriber.new', req.site._id, {
+      subscriberId: subscriber._id,
+      browser: subscriber.browser,
+      os: subscriber.os,
+      device: subscriber.device,
+      siteId: req.site._id
+    }).catch(() => {});
+
     res.json({ success: true, subscriberId: subscriber._id });
   } catch (err) {
     console.error('Subscribe error:', err);
@@ -89,6 +99,12 @@ router.post('/unsubscribe', requireApiKey, async (req, res) => {
 
     const count = await Subscriber.countDocuments({ siteId: req.site._id, active: true });
     await Site.findByIdAndUpdate(req.site._id, { subscriberCount: count });
+
+    // Trigger webhook
+    webhooks.fire('subscriber.unsubscribe', req.site._id, {
+      endpoint,
+      siteId: req.site._id
+    }).catch(() => {});
 
     res.json({ success: true });
   } catch (err) {
@@ -129,8 +145,10 @@ router.post('/track', requireApiKey, async (req, res) => {
           lastActive: new Date()
         });
       }
+      webhooks.fire('notification.clicked', req.site._id, { campaignId, subscriberId, utm: utm || {} }).catch(() => {});
     } else if (type === 'dismissed') {
       await Campaign.findByIdAndUpdate(campaignId, { $inc: { 'stats.dismissed': 1 } });
+      webhooks.fire('notification.dismissed', req.site._id, { campaignId, subscriberId }).catch(() => {});
     }
 
     res.json({ success: true });

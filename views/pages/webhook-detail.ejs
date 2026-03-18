@@ -1,0 +1,118 @@
+<%- include('../partials/header', { pageTitle: webhook.name, activePage: 'webhooks' }) %>
+
+<div class="page-header">
+  <h1><%= webhook.name %></h1>
+  <div class="flex gap-8">
+    <a href="/dashboard/webhooks" class="btn btn-outline">&larr; Back</a>
+    <form method="POST" action="/dashboard/webhooks/<%= webhook._id %>/test" style="display:inline;">
+      <button type="submit" class="btn btn-primary btn-sm">Send Test</button>
+    </form>
+    <form method="POST" action="/dashboard/webhooks/<%= webhook._id %>/toggle" style="display:inline;">
+      <button type="submit" class="btn btn-outline btn-sm"><%= webhook.active ? 'Disable' : 'Enable' %></button>
+    </form>
+    <form method="POST" action="/dashboard/webhooks/<%= webhook._id %>/delete" style="display:inline;">
+      <button type="submit" class="btn btn-danger btn-sm" data-confirm="Delete this webhook and all its logs?">Delete</button>
+    </form>
+  </div>
+</div>
+
+<!-- Health Stats -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Status</div>
+    <div class="stat-value" style="font-size:18px;">
+      <% if (webhook.autoDisabled) { %>
+        <span style="color:var(--danger)">Auto-disabled</span>
+      <% } else if (webhook.active) { %>
+        <span style="color:var(--success)">Active</span>
+      <% } else { %>
+        <span style="color:var(--warning)">Disabled</span>
+      <% } %>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Successful</div>
+    <div class="stat-value success"><%= webhook.successCount %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Failed</div>
+    <div class="stat-value" style="color:var(--danger)"><%= webhook.failCount %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Last Status</div>
+    <div class="stat-value"><%= webhook.lastStatus || '—' %></div>
+  </div>
+</div>
+
+<!-- Config -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Configuration</span>
+    </div>
+    <table>
+      <tr><td class="text-muted" style="width:120px;">URL</td><td class="text-sm" style="word-break:break-all;"><%= webhook.url %></td></tr>
+      <tr><td class="text-muted">Site</td><td><%= webhook.siteId ? webhook.siteId.name : '—' %></td></tr>
+      <tr><td class="text-muted">Events</td><td>
+        <% webhook.events.forEach(function(e) { %>
+          <span class="badge badge-primary" style="margin:2px;"><%= e %></span>
+        <% }) %>
+      </td></tr>
+      <tr><td class="text-muted">Created</td><td class="text-sm"><%= new Date(webhook.createdAt).toLocaleString() %></td></tr>
+      <tr><td class="text-muted">Last triggered</td><td class="text-sm"><%= webhook.lastTriggered ? new Date(webhook.lastTriggered).toLocaleString() : 'Never' %></td></tr>
+      <% if (webhook.lastError) { %>
+      <tr><td class="text-muted">Last error</td><td class="text-sm" style="color:var(--danger);"><%= webhook.lastError %></td></tr>
+      <% } %>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Signing Secret</span>
+    </div>
+    <p class="text-sm text-muted mb-16">Use this secret to verify webhook signatures on your server.</p>
+    <div class="code-block">
+      <button class="copy-btn" onclick="copyToClipboard('<%= webhook.secret %>', this)">Copy</button>
+      <pre><%= webhook.secret %></pre>
+    </div>
+    <p class="text-sm text-muted mt-8">Verify with: <code>HMAC-SHA256(body, secret) === X-PushHive-Signature</code></p>
+  </div>
+</div>
+
+<!-- Delivery Logs -->
+<div class="card mt-24">
+  <div class="card-header">
+    <span class="card-title">Delivery Logs (last 50)</span>
+  </div>
+  <% if (logs.length === 0) { %>
+    <p class="text-muted text-sm">No deliveries yet. Send a test webhook to check your endpoint.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Event</th><th>Status</th><th>Response</th><th>Time</th><th>Attempt</th><th>Date</th></tr></thead>
+      <tbody>
+        <% logs.forEach(function(log) { %>
+        <tr>
+          <td><span class="badge badge-primary" style="font-size:10px;"><%= log.event %></span></td>
+          <td>
+            <% if (log.success) { %>
+              <span class="badge badge-success"><%= log.statusCode %></span>
+            <% } else { %>
+              <span class="badge badge-danger"><%= log.statusCode || 'ERR' %></span>
+            <% } %>
+          </td>
+          <td class="text-muted text-xs truncate" style="max-width:200px;">
+            <%= log.error || (log.responseBody ? log.responseBody.substring(0, 80) : '—') %>
+          </td>
+          <td class="text-muted text-xs"><%= log.responseTime ? log.responseTime + 'ms' : '—' %></td>
+          <td class="text-muted text-xs"><%= log.attempt %>/5</td>
+          <td class="text-muted text-xs"><%= new Date(log.createdAt).toLocaleString() %></td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>

@@ -313,6 +313,14 @@ const completionWorker = new Worker(QUEUE_NAMES.CAMPAIGN_COMPLETE, async (job) =
 
     console.log(`[${WORKER_ID}] A/B Winner: ${winner} (A: ${ctrA.toFixed(1)}% CTR, ${clicksA} clicks | B: ${ctrB.toFixed(1)}% CTR, ${clicksB} clicks)`);
 
+    // Fire webhook
+    const webhooks = require('./services/webhooks');
+    webhooks.fire('ab_test.winner', campaign.siteId, {
+      campaignId, winner,
+      variantA: { ctr: ctrA.toFixed(2), clicks: clicksA, sent: variantA.stats.sent },
+      variantB: { ctr: ctrB.toFixed(2), clicks: clicksB, sent: variantB.stats.sent }
+    }).catch(() => {});
+
     // Queue the winner send to remaining subscribers
     const { queueCampaign } = require('./services/queue');
     await queueCampaign(campaignId, { sendWinner: true, winnerVariant: winner });
@@ -343,6 +351,13 @@ const completionWorker = new Worker(QUEUE_NAMES.CAMPAIGN_COMPLETE, async (job) =
 
   const activeCount = await Subscriber.countDocuments({ siteId: campaign.siteId, active: true });
   await Site.findByIdAndUpdate(campaign.siteId, { subscriberCount: activeCount });
+
+  // Fire webhook
+  const webhooks = require('./services/webhooks');
+  webhooks.fire('campaign.sent', campaign.siteId, {
+    campaignId, title: campaign.title, delivered, failed: failedCount,
+    ctr: delivered > 0 ? ((campaign.stats.clicked / delivered) * 100).toFixed(2) + '%' : '0%'
+  }).catch(() => {});
 
   console.log(`[${WORKER_ID}] Campaign "${campaign.title}" complete: ${delivered} delivered, ${failedCount} failed`);
   return { campaignId, delivered, failed: failedCount };
@@ -382,8 +397,97 @@ const cleanupWorker = new Worker(QUEUE_NAMES.PUSH_CLEANUP, async (job) => {
   return { cleaned, remaining };
 }, { connection: createConnection(), concurrency: 2 });
 
+// ═══════════════════════════════════════════════════════════════
+// Worker 5: Webhook Delivery
+// Sends HTTP POST to webhook URLs with signed payloads
+// ═══════════════════════════════════════════════════════════════
+const { WEBHOOK_QUEUE } = require('./services/webhooks');
+const Webhook = require('./models/Webhook');
+const WebhookLog = require('./models/WebhookLog');
+
+const webhookWorker = new Worker(WEBHOOK_QUEUE, async (job) => {
+  const { webhookId, siteId, event, url, signature, payload, timeoutMs } = job.data;
+  const startTime = Date.now();
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs || 10000);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-PushHive-Event': event,
+        'X-PushHive-Signature': signature,
+        'X-PushHive-Timestamp': payload.timestamp,
+        'User-Agent': 'PushHive-Webhook/2.0'
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+    const responseTimeMs = Date.now() - startTime;
+    const responseBody = await response.text().catch(() => '');
+
+    // Log the attempt
+    await WebhookLog.create({
+      webhookId, siteId, event, url, payload,
+      statusCode: response.status,
+      responseBody: responseBody.substring(0, 2000),
+      responseTimeMs,
+      success: response.ok,
+      attempt: job.attemptsMade + 1
+    });
+
+    // Update webhook stats
+    if (response.ok) {
+      await Webhook.findByIdAndUpdate(webhookId, {
+        $inc: { 'stats.totalSent': 1, 'stats.totalSuccess': 1 },
+        'stats.lastTriggered': new Date(),
+        'stats.lastSuccess': new Date(),
+        'stats.lastError': ''
+      });
+    } else {
+      await Webhook.findByIdAndUpdate(webhookId, {
+        $inc: { 'stats.totalSent': 1, 'stats.totalFailed': 1 },
+        'stats.lastTriggered': new Date(),
+        'stats.lastFailure': new Date(),
+        'stats.lastError': `HTTP ${response.status}`
+      });
+      throw new Error(`Webhook returned HTTP ${response.status}`);
+    }
+
+    return { statusCode: response.status, responseTimeMs };
+
+  } catch (err) {
+    const responseTimeMs = Date.now() - startTime;
+    const errorMsg = err.name === 'AbortError' ? 'Timeout' : err.message;
+
+    await WebhookLog.create({
+      webhookId, siteId, event, url, payload,
+      responseTimeMs, success: false,
+      attempt: job.attemptsMade + 1,
+      error: errorMsg
+    });
+
+    await Webhook.findByIdAndUpdate(webhookId, {
+      $inc: { 'stats.totalSent': 1, 'stats.totalFailed': 1 },
+      'stats.lastTriggered': new Date(),
+      'stats.lastFailure': new Date(),
+      'stats.lastError': errorMsg
+    });
+
+    throw err; // Triggers retry
+  }
+}, {
+  connection: createConnection(),
+  concurrency: 20,
+  limiter: { max: 100, duration: 1000 } // Max 100 webhooks/sec
+});
+
 // ── Error Handlers ──────────────────────────────────────────────
-[campaignWorker, batchWorker, completionWorker, cleanupWorker].forEach(w => {
+[campaignWorker, batchWorker, completionWorker, cleanupWorker, webhookWorker].forEach(w => {
   w.on('failed', (job, err) => console.error(`[${WORKER_ID}] Job ${job?.id} failed on ${w.name}:`, err.message));
   w.on('error', (err) => console.error(`[${WORKER_ID}] Worker ${w.name} error:`, err.message));
 });
@@ -405,10 +509,18 @@ async function checkScheduledCampaigns() {
 setInterval(checkScheduledCampaigns, 30000);
 checkScheduledCampaigns();
 
+// ── Start Webhook Delivery Worker ───────────────────────────────
+const webhookService = require('./services/webhooks');
+webhookService.startWorker();
+
 // ── Graceful Shutdown ───────────────────────────────────────────
 async function shutdown(signal) {
   console.log(`[${WORKER_ID}] ${signal} received, shutting down...`);
-  await Promise.all([campaignWorker.close(), batchWorker.close(), completionWorker.close(), cleanupWorker.close()]);
+  await Promise.all([
+    campaignWorker.close(), batchWorker.close(),
+    completionWorker.close(), cleanupWorker.close(),
+    webhookService.close()
+  ]);
   await mongoose.disconnect();
   process.exit(0);
 }

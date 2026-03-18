@@ -1,0 +1,138 @@
+<%- include('../partials/header', { pageTitle: 'Webhooks', activePage: 'webhooks' }) %>
+
+<div class="page-header">
+  <h1>Webhooks</h1>
+</div>
+
+<!-- Create Webhook -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Add Webhook</span>
+  </div>
+  <form method="POST" action="/dashboard/webhooks">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input type="text" name="name" class="form-input" placeholder="CRM Integration" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Site</label>
+        <select name="siteId" class="form-select" required>
+          <% sites.forEach(function(s) { %>
+          <option value="<%= s._id %>"><%= s.name %></option>
+          <% }) %>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Endpoint URL</label>
+      <input type="url" name="url" class="form-input" placeholder="https://your-server.com/webhooks/pushhive" required>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Events</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text-muted);">
+          <input type="checkbox" name="events" value="subscriber.new" checked> New subscriber
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text-muted);">
+          <input type="checkbox" name="events" value="subscriber.unsubscribe" checked> Unsubscribe
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text-muted);">
+          <input type="checkbox" name="events" value="campaign.sent" checked> Campaign sent
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text-muted);">
+          <input type="checkbox" name="events" value="campaign.failed"> Campaign failed
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text-muted);">
+          <input type="checkbox" name="events" value="notification.clicked" checked> Notification clicked
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text-muted);">
+          <input type="checkbox" name="events" value="notification.dismissed"> Notification dismissed
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text-muted);">
+          <input type="checkbox" name="events" value="ab_test.winner"> A/B test winner
+        </label>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Create Webhook</button>
+  </form>
+</div>
+
+<!-- Webhooks List -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Your Webhooks (<%= webhooks.length %>)</span>
+  </div>
+  <% if (webhooks.length === 0) { %>
+    <p class="text-muted text-sm">No webhooks configured. Create one above to get started.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Site</th><th>URL</th><th>Events</th><th>Status</th><th>Last Triggered</th><th>Actions</th></tr></thead>
+      <tbody>
+        <% webhooks.forEach(function(wh) { %>
+        <tr>
+          <td><a href="/dashboard/webhooks/<%= wh._id %>" style="color:var(--primary-hover);text-decoration:none;font-weight:500;"><%= wh.name %></a></td>
+          <td class="text-muted"><%= wh.siteId ? wh.siteId.name : '—' %></td>
+          <td class="text-muted text-xs truncate" style="max-width:180px;"><%= wh.url %></td>
+          <td><%= wh.events.length %> events</td>
+          <td>
+            <% if (wh.autoDisabled) { %>
+              <span class="badge badge-danger">Auto-disabled</span>
+            <% } else if (wh.active) { %>
+              <span class="badge badge-success">Active</span>
+            <% } else { %>
+              <span class="badge badge-warning">Disabled</span>
+            <% } %>
+          </td>
+          <td class="text-muted text-xs"><%= wh.lastTriggered ? new Date(wh.lastTriggered).toLocaleString() : 'Never' %></td>
+          <td>
+            <div class="flex gap-8">
+              <form method="POST" action="/dashboard/webhooks/<%= wh._id %>/toggle" style="display:inline;">
+                <button type="submit" class="btn btn-outline btn-sm"><%= wh.active ? 'Disable' : 'Enable' %></button>
+              </form>
+              <form method="POST" action="/dashboard/webhooks/<%= wh._id %>/delete" style="display:inline;">
+                <button type="submit" class="btn btn-danger btn-sm" data-confirm="Delete this webhook?">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<!-- How Webhooks Work -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">How it works</span>
+  </div>
+  <p class="text-sm text-muted" style="margin-bottom:12px;">
+    When an event occurs, PushHive sends a POST request to your endpoint with a JSON payload.
+    The payload is signed with HMAC-SHA256 using your webhook secret.
+  </p>
+  <div class="code-block">
+    <pre>POST https://your-server.com/webhook
+Content-Type: application/json
+X-PushHive-Event: subscriber.new
+X-PushHive-Signature: a1b2c3d4...
+
+{
+  "event": "subscriber.new",
+  "timestamp": "2026-03-18T12:00:00Z",
+  "data": {
+    "subscriberId": "abc123",
+    "browser": "Chrome",
+    "device": "mobile"
+  }
+}</pre>
+  </div>
+  <p class="text-sm text-muted mt-16">
+    Verify the signature by computing HMAC-SHA256 of the raw body using your webhook secret, and comparing with the <code>X-PushHive-Signature</code> header.
+    Webhooks auto-disable after 10 consecutive failures. Deliveries retry up to 5 times with exponential backoff.
+  </p>
+</div>
+
+<%- include('../partials/footer') %>

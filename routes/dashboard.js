@@ -7,6 +7,8 @@ const Subscriber = require('../models/Subscriber');
 const Campaign = require('../models/Campaign');
 const Event = require('../models/Event');
 const Admin = require('../models/Admin');
+const Webhook = require('../models/Webhook');
+const WebhookLog = require('../models/WebhookLog');
 const webpush = require('web-push');
 
 // Apply auth middleware to all dashboard routes
@@ -388,6 +390,81 @@ router.get('/queue', async (req, res) => {
   } catch (err) {
     console.error('Queue status error:', err);
     res.render('pages/queue', { queueStats: {}, activeCampaigns: [], queueError: err.message });
+  }
+});
+
+// ── Webhooks ────────────────────────────────────────────────────
+router.get('/webhooks', async (req, res) => {
+  const sites = await Site.find().lean();
+  const webhooks = await Webhook.find().sort({ createdAt: -1 }).populate('siteId', 'name').lean();
+  res.render('pages/webhooks', { webhooks, sites });
+});
+
+router.post('/webhooks', async (req, res) => {
+  try {
+    const { siteId, name, url, events } = req.body;
+    const eventList = Array.isArray(events) ? events : (events ? [events] : []);
+    const webhook = new Webhook({ siteId, name, url, events: eventList });
+    await webhook.save();
+    req.session.success = `Webhook "${name}" created`;
+    res.redirect('/dashboard/webhooks');
+  } catch (err) {
+    req.session.error = 'Failed to create webhook: ' + err.message;
+    res.redirect('/dashboard/webhooks');
+  }
+});
+
+router.get('/webhooks/:id', async (req, res) => {
+  try {
+    const webhook = await Webhook.findById(req.params.id).populate('siteId', 'name domain').lean();
+    if (!webhook) { req.session.error = 'Webhook not found'; return res.redirect('/dashboard/webhooks'); }
+    const logs = await WebhookLog.find({ webhookId: webhook._id })
+      .sort({ createdAt: -1 }).limit(50).lean();
+    res.render('pages/webhook-detail', { webhook, logs });
+  } catch (err) {
+    req.session.error = 'Failed to load webhook';
+    res.redirect('/dashboard/webhooks');
+  }
+});
+
+router.post('/webhooks/:id/toggle', async (req, res) => {
+  try {
+    const webhook = await Webhook.findById(req.params.id);
+    if (!webhook) { req.session.error = 'Webhook not found'; return res.redirect('/dashboard/webhooks'); }
+    webhook.active = !webhook.active;
+    if (webhook.active) { webhook.autoDisabled = false; webhook.failCount = 0; }
+    await webhook.save();
+    req.session.success = `Webhook ${webhook.active ? 'enabled' : 'disabled'}`;
+    res.redirect('/dashboard/webhooks');
+  } catch (err) {
+    req.session.error = 'Failed to toggle webhook';
+    res.redirect('/dashboard/webhooks');
+  }
+});
+
+router.post('/webhooks/:id/delete', async (req, res) => {
+  try {
+    await Webhook.findByIdAndDelete(req.params.id);
+    await WebhookLog.deleteMany({ webhookId: req.params.id });
+    req.session.success = 'Webhook deleted';
+    res.redirect('/dashboard/webhooks');
+  } catch (err) {
+    req.session.error = 'Failed to delete webhook';
+    res.redirect('/dashboard/webhooks');
+  }
+});
+
+router.post('/webhooks/:id/test', async (req, res) => {
+  try {
+    const webhook = await Webhook.findById(req.params.id);
+    if (!webhook) { req.session.error = 'Webhook not found'; return res.redirect('/dashboard/webhooks'); }
+    const webhookService = require('../services/webhooks');
+    await webhookService.fire('test', webhook.siteId, { message: 'Test webhook from PushHive', timestamp: new Date().toISOString() });
+    req.session.success = 'Test webhook queued';
+    res.redirect(`/dashboard/webhooks/${webhook._id}`);
+  } catch (err) {
+    req.session.error = 'Failed to send test webhook';
+    res.redirect('/dashboard/webhooks');
   }
 });
 

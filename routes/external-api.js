@@ -339,4 +339,58 @@ router.get('/analytics', async (req, res) => {
   }
 });
 
+// ── Webhooks ────────────────────────────────────────────────────
+const Webhook = require('../models/Webhook');
+
+// List webhooks
+router.get('/webhooks', async (req, res) => {
+  try {
+    const webhooks = await Webhook.find({ siteId: req.site._id })
+      .select('-secret').sort({ createdAt: -1 }).lean();
+    res.json({ success: true, data: webhooks });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch webhooks' });
+  }
+});
+
+// Create webhook
+router.post('/webhooks', async (req, res) => {
+  try {
+    const { name, url, events } = req.body;
+    if (!name || !url || !events || !events.length) {
+      return res.status(400).json({ error: 'name, url, and events array are required' });
+    }
+    const webhook = new Webhook({ siteId: req.site._id, name, url, events });
+    await webhook.save();
+    res.status(201).json({ success: true, data: webhook });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create webhook: ' + err.message });
+  }
+});
+
+// Delete webhook
+router.delete('/webhooks/:id', async (req, res) => {
+  try {
+    const result = await Webhook.findOneAndDelete({ _id: req.params.id, siteId: req.site._id });
+    if (!result) return res.status(404).json({ error: 'Webhook not found' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete webhook' });
+  }
+});
+
+// Toggle webhook
+router.post('/webhooks/:id/toggle', async (req, res) => {
+  try {
+    const wh = await Webhook.findOne({ _id: req.params.id, siteId: req.site._id });
+    if (!wh) return res.status(404).json({ error: 'Webhook not found' });
+    wh.active = !wh.active;
+    if (wh.active) { wh.autoDisabled = false; wh.failCount = 0; }
+    await wh.save();
+    res.json({ success: true, active: wh.active });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to toggle webhook' });
+  }
+});
+
 module.exports = router;
