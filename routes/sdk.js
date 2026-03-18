@@ -282,7 +282,13 @@ function generateSDK(serverUrl) {
     subscribe: function(registration) {
       console.log('[PushHive] Creating push subscription...');
       var vapidKey = PushHive.siteConfig.vapidPublicKey;
+      if (!vapidKey) {
+        console.error('[PushHive] No VAPID public key from server. Check your .env VAPID_PUBLIC_KEY');
+        return;
+      }
+      console.log('[PushHive] VAPID key length:', vapidKey.length, '| starts with:', vapidKey.substring(0, 10) + '...');
       var convertedKey = PushHive.urlBase64ToUint8Array(vapidKey);
+      console.log('[PushHive] Converted key length:', convertedKey.length, '(should be 65)');
 
       registration.pushManager.subscribe({
         userVisibleOnly: true,
@@ -293,7 +299,13 @@ function generateSDK(serverUrl) {
         PushHive.sendSubscription(subscription);
       })
       .catch(function(err) {
-        console.error('[PushHive] Subscribe failed:', err);
+        console.error('[PushHive] Subscribe failed:', err.name + ':', err.message);
+        if (err.name === 'AbortError') {
+          console.error('[PushHive] This usually means:');
+          console.error('[PushHive]   1. VAPID key mismatch - regenerate keys and update .env');
+          console.error('[PushHive]   2. Browser blocking push (Brave shields, Firefox ETP)');
+          console.error('[PushHive]   3. Existing subscription with different VAPID key - clear site data');
+        }
       });
     },
 
