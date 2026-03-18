@@ -88,18 +88,60 @@ echo ""
 
 # ── Step 1: Install Docker ──────────────────────────────────────
 echo -e "${BOLD}[1/6] Installing Docker...${NC}"
+
+# Detect package manager
+detect_pkg_manager() {
+  if command -v apt-get &> /dev/null; then
+    PKG_MGR="apt"
+  elif command -v dnf &> /dev/null; then
+    PKG_MGR="dnf"
+  elif command -v yum &> /dev/null; then
+    PKG_MGR="yum"
+  elif command -v apk &> /dev/null; then
+    PKG_MGR="apk"
+  elif command -v pacman &> /dev/null; then
+    PKG_MGR="pacman"
+  elif command -v zypper &> /dev/null; then
+    PKG_MGR="zypper"
+  else
+    PKG_MGR="unknown"
+  fi
+}
+detect_pkg_manager
+
+pkg_install() {
+  case "$PKG_MGR" in
+    apt)    apt-get update -qq && apt-get install -y "$@" ;;
+    dnf)    dnf install -y "$@" ;;
+    yum)    yum install -y "$@" ;;
+    apk)    apk add --no-cache "$@" ;;
+    pacman) pacman -Sy --noconfirm "$@" ;;
+    zypper) zypper install -y "$@" ;;
+    *)      echo -e "${RED}Unknown package manager. Install $@ manually.${NC}" && return 1 ;;
+  esac
+}
+
+# Ensure curl and git are available
+for tool in curl git; do
+  if ! command -v $tool &> /dev/null; then
+    echo -e "  Installing $tool..."
+    pkg_install $tool > /dev/null 2>&1 || true
+  fi
+done
+
 if command -v docker &> /dev/null; then
   echo -e "${GREEN}✓ Docker already installed ($(docker --version | cut -d' ' -f3 | tr -d ','))${NC}"
 else
   echo -e "  Downloading and installing Docker (this may take a minute)..."
   curl -fsSL https://get.docker.com | sh
   if [ $? -ne 0 ]; then
-    echo -e "${RED}✗ Docker installation failed. Please install Docker manually:${NC}"
-    echo -e "${RED}  https://docs.docker.com/engine/install/${NC}"
+    echo -e "${RED}✗ Docker auto-install failed.${NC}"
+    echo -e "${YELLOW}  Try installing Docker manually for your distro:${NC}"
+    echo -e "${YELLOW}  https://docs.docker.com/engine/install/${NC}"
     exit 1
   fi
-  systemctl start docker
-  systemctl enable docker
+  systemctl start docker 2>/dev/null || service docker start 2>/dev/null || true
+  systemctl enable docker 2>/dev/null || true
   echo -e "${GREEN}✓ Docker installed${NC}"
 fi
 
@@ -108,26 +150,22 @@ if docker compose version &> /dev/null; then
   echo -e "${GREEN}✓ Docker Compose available${NC}"
 else
   echo -e "  Installing Docker Compose plugin..."
-  apt-get update -qq
-  apt-get install -y docker-compose-plugin 2>/dev/null || {
-    # Fallback: install standalone docker-compose
-    echo -e "  Trying standalone Docker Compose..."
+
+  # Try distro package first
+  pkg_install docker-compose-plugin 2>/dev/null || {
+    # Fallback: download binary directly (works on any Linux)
+    echo -e "  Downloading Docker Compose binary..."
     ARCH=$(uname -m)
-    case "$ARCH" in
-      aarch64) ARCH="aarch64" ;;
-      x86_64) ARCH="x86_64" ;;
-    esac
-    COMPOSE_VER=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d'"' -f4)
+    COMPOSE_VER=$(curl -sf https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d'"' -f4)
     if [ -n "$COMPOSE_VER" ]; then
       curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VER}/docker-compose-$(uname -s)-${ARCH}" \
         -o /usr/local/bin/docker-compose
       chmod +x /usr/local/bin/docker-compose
-      # Create alias so 'docker compose' works
       mkdir -p /usr/local/lib/docker/cli-plugins
       ln -sf /usr/local/bin/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
     fi
   }
-  
+
   if docker compose version &> /dev/null; then
     echo -e "${GREEN}✓ Docker Compose installed${NC}"
   else
@@ -142,12 +180,14 @@ echo -e "${BOLD}[2/6] Installing Nginx...${NC}"
 if command -v nginx &> /dev/null; then
   echo -e "${GREEN}✓ Nginx already installed${NC}"
 else
-  apt-get update -qq
-  apt-get install -y nginx
+  echo -e "  Installing Nginx..."
+  pkg_install nginx
   if [ $? -ne 0 ]; then
-    echo -e "${RED}✗ Nginx installation failed${NC}"
+    echo -e "${RED}✗ Nginx installation failed. Install it manually for your distro.${NC}"
     exit 1
   fi
+  systemctl start nginx 2>/dev/null || service nginx start 2>/dev/null || true
+  systemctl enable nginx 2>/dev/null || true
   echo -e "${GREEN}✓ Nginx installed${NC}"
 fi
 
@@ -290,7 +330,23 @@ echo -e "${GREEN}✓ Admin account created${NC}"
 # ── Step 6: Configure Nginx + SSL ───────────────────────────────
 echo -e "${BOLD}[6/6] Configuring Nginx reverse proxy...${NC}"
 
-cat > "/etc/nginx/sites-available/pushhive" << NGINXEOF
+# Detect Nginx config style (Debian/Ubuntu vs CentOS/RHEL)
+NGINX_CONF=""
+if [ -d "/etc/nginx/sites-available" ]; then
+  # Debian/Ubuntu style
+  NGINX_CONF="/etc/nginx/sites-available/pushhive"
+  NGINX_LINK="/etc/nginx/sites-enabled/pushhive"
+elif [ -d "/etc/nginx/conf.d" ]; then
+  # CentOS/RHEL/Alpine style
+  NGINX_CONF="/etc/nginx/conf.d/pushhive.conf"
+  NGINX_LINK=""
+else
+  mkdir -p /etc/nginx/conf.d
+  NGINX_CONF="/etc/nginx/conf.d/pushhive.conf"
+  NGINX_LINK=""
+fi
+
+cat > "$NGINX_CONF" << NGINXEOF
 server {
     listen 80;
     server_name ${DOMAIN};
@@ -319,24 +375,35 @@ server {
 }
 NGINXEOF
 
-ln -sf /etc/nginx/sites-available/pushhive /etc/nginx/sites-enabled/
-rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+# Symlink if Debian/Ubuntu style
+if [ -n "$NGINX_LINK" ]; then
+  ln -sf "$NGINX_CONF" "$NGINX_LINK"
+  rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+fi
+
 nginx -t > /dev/null 2>&1
-systemctl reload nginx
+systemctl reload nginx 2>/dev/null || service nginx reload 2>/dev/null || nginx -s reload 2>/dev/null
 echo -e "${GREEN}✓ Nginx configured${NC}"
 
 # SSL with Let's Encrypt
 if [ "$ENABLE_SSL" = "y" ] || [ "$ENABLE_SSL" = "Y" ]; then
   echo -e "  Setting up SSL with Let's Encrypt..."
   if ! command -v certbot &> /dev/null; then
-    apt-get install -y -qq certbot python3-certbot-nginx > /dev/null 2>&1
+    case "$PKG_MGR" in
+      apt)    apt-get install -y -qq certbot python3-certbot-nginx > /dev/null 2>&1 ;;
+      dnf)    dnf install -y certbot python3-certbot-nginx > /dev/null 2>&1 ;;
+      yum)    yum install -y certbot python3-certbot-nginx > /dev/null 2>&1 ;;
+      *)      echo -e "${YELLOW}  Install certbot manually for your distro${NC}" ;;
+    esac
   fi
-  certbot --nginx -d "$DOMAIN" --email "$ADMIN_EMAIL" --agree-tos --non-interactive --redirect 2>/dev/null && {
-    echo -e "${GREEN}✓ SSL certificate installed${NC}"
-  } || {
-    echo -e "${YELLOW}⚠ SSL setup failed. You can run manually later:${NC}"
-    echo -e "${YELLOW}  certbot --nginx -d ${DOMAIN}${NC}"
-  }
+  if command -v certbot &> /dev/null; then
+    certbot --nginx -d "$DOMAIN" --email "$ADMIN_EMAIL" --agree-tos --non-interactive --redirect 2>/dev/null && {
+      echo -e "${GREEN}✓ SSL certificate installed${NC}"
+    } || {
+      echo -e "${YELLOW}⚠ SSL setup failed. You can run manually later:${NC}"
+      echo -e "${YELLOW}  certbot --nginx -d ${DOMAIN}${NC}"
+    }
+  fi
 fi
 
 # ── Done! ────────────────────────────────────────────────────────
