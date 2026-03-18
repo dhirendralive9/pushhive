@@ -7,6 +7,8 @@ const adminSchema = new mongoose.Schema({
   name: { type: String, default: 'Admin' },
   role: { type: String, enum: ['super', 'admin'], default: 'super' },
   lastLogin: { type: Date },
+  failedLoginAttempts: { type: Number, default: 0 },
+  lockUntil: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now }
 });
 

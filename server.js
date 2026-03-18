@@ -4,18 +4,31 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const mongoose = require('mongoose');
 const path = require('path');
+const {
+  helmetMiddleware, sanitizeInputs, xssSanitize,
+  generateCsrfToken, securityLogger, apiLimiter, sdkLimiter
+} = require('./middleware/security');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ── Trust proxy (behind Nginx/Docker) ───────────────────────────
+app.set('trust proxy', 1);
 
 // ── MongoDB Connection ──────────────────────────────────────────
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('✓ MongoDB connected'))
   .catch(err => { console.error('✗ MongoDB connection error:', err); process.exit(1); });
 
-// ── Middleware ───────────────────────────────────────────────────
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// ── Security Middleware ─────────────────────────────────────────
+app.use(helmetMiddleware);
+app.use(sanitizeInputs);
+app.use(securityLogger);
+
+// ── Body Parsing ────────────────────────────────────────────────
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(xssSanitize);
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Session with MongoDB store
@@ -37,11 +50,15 @@ app.use(session({
   name: 'pushhive.sid'
 }));
 
-// Make session data available to all EJS views
+// CSRF token generation for all dashboard pages
+app.use(generateCsrfToken);
+
+// Make session data + Turnstile config available to all EJS views
 app.use((req, res, next) => {
   res.locals.admin = req.session.admin || null;
   res.locals.success = req.session.success || null;
   res.locals.error = req.session.error || null;
+  res.locals.turnstileSiteKey = process.env.TURNSTILE_SITE_KEY || '';
   delete req.session.success;
   delete req.session.error;
   next();
@@ -51,11 +68,11 @@ app.use((req, res, next) => {
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// ── Routes ──────────────────────────────────────────────────────
+// ── Routes (with rate limiters) ─────────────────────────────────
 app.use('/auth', require('./routes/auth'));
 app.use('/dashboard', require('./routes/dashboard'));
-app.use('/api', require('./routes/api'));
-app.use('/api/v1', require('./routes/external-api'));
+app.use('/api/v1', apiLimiter, require('./routes/external-api'));
+app.use('/api', sdkLimiter, require('./routes/api'));
 app.use('/sdk', require('./routes/sdk'));
 
 // Root redirect

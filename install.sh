@@ -70,6 +70,19 @@ read -p "Enable SSL with Let's Encrypt? (y/n) [y]: " ENABLE_SSL
 ENABLE_SSL=${ENABLE_SSL:-y}
 
 echo ""
+echo -e "${BOLD}Cloudflare Turnstile (optional bot protection for login)${NC}"
+echo -e "${CYAN}Get keys at: https://dash.cloudflare.com/turnstile${NC}"
+read -p "Turnstile Site Key [skip]: " TURNSTILE_SITE_KEY
+TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY:-}
+if [ -n "$TURNSTILE_SITE_KEY" ]; then
+  read -p "Turnstile Secret Key: " TURNSTILE_SECRET_KEY
+  TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY:-}
+else
+  TURNSTILE_SECRET_KEY=""
+  echo -e "${YELLOW}  Skipped — you can add Turnstile later in .env${NC}"
+fi
+
+echo ""
 echo -e "${YELLOW}Installing PushHive...${NC}"
 echo ""
 
@@ -155,20 +168,38 @@ fi
 
 cd "$INSTALL_DIR"
 
-# Generate VAPID keys using a temporary Node container
-echo -e "  Pulling Node.js image (first time may take a minute)..."
-docker pull node:20-alpine
-
+# Generate VAPID keys — use local Node if available, fallback to Docker
 echo -e "  Generating VAPID keys..."
-VAPID_OUTPUT=$(docker run --rm node:20-alpine sh -c "
-  npm install web-push --silent 2>/dev/null && \
-  node -e \"
+
+if command -v node &> /dev/null; then
+  # Node.js is installed locally — use it directly
+  echo -e "  Using local Node.js..."
+  
+  # Install web-push temporarily
+  cd "$INSTALL_DIR"
+  npm install web-push --save > /dev/null 2>&1
+  
+  VAPID_OUTPUT=$(node -e "
     const wp=require('web-push');
     const k=wp.generateVAPIDKeys();
     console.log('PUBLIC:'+k.publicKey);
     console.log('PRIVATE:'+k.privateKey);
-  \"
-")
+  " 2>&1)
+else
+  # No local Node — use Docker
+  echo -e "  Pulling Node.js image (first time may take a minute)..."
+  docker pull node:20-alpine
+  
+  VAPID_OUTPUT=$(docker run --rm node:20-alpine sh -c "
+    npm install web-push --silent 2>/dev/null && \
+    node -e \"
+      const wp=require('web-push');
+      const k=wp.generateVAPIDKeys();
+      console.log('PUBLIC:'+k.publicKey);
+      console.log('PRIVATE:'+k.privateKey);
+    \"
+  " 2>&1)
+fi
 
 VAPID_PUBLIC=$(echo "$VAPID_OUTPUT" | grep '^PUBLIC:' | cut -d':' -f2-)
 VAPID_PRIVATE=$(echo "$VAPID_OUTPUT" | grep '^PRIVATE:' | cut -d':' -f2-)
@@ -193,6 +224,8 @@ VAPID_PUBLIC_KEY=${VAPID_PUBLIC}
 VAPID_PRIVATE_KEY=${VAPID_PRIVATE}
 VAPID_EMAIL=${ADMIN_EMAIL}
 NODE_ENV=production
+TURNSTILE_SITE_KEY=${TURNSTILE_SITE_KEY}
+TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY}
 EOF
 
 chmod 600 "$INSTALL_DIR/.env"
@@ -321,6 +354,18 @@ echo ""
 echo -e "${RED}${BOLD}⚠  SAVE THESE CREDENTIALS — this is the only time the password is shown!${NC}"
 echo ""
 echo -e "${BOLD}Install Dir:${NC}   ${INSTALL_DIR}"
+echo ""
+echo -e "${BOLD}Security:${NC}"
+echo -e "  Login rate limiting:    ${GREEN}Enabled${NC} (5 attempts / 15 min)"
+echo -e "  Account lockout:        ${GREEN}Enabled${NC} (locks after 10 failures)"
+echo -e "  CSRF protection:        ${GREEN}Enabled${NC}"
+echo -e "  Helmet security headers:${GREEN} Enabled${NC}"
+echo -e "  MongoDB injection guard: ${GREEN}Enabled${NC}"
+if [ -n "$TURNSTILE_SITE_KEY" ]; then
+  echo -e "  Cloudflare Turnstile:   ${GREEN}Enabled${NC}"
+else
+  echo -e "  Cloudflare Turnstile:   ${YELLOW}Disabled${NC} (add keys to .env to enable)"
+fi
 echo ""
 echo -e "${BOLD}Docker Commands:${NC}"
 echo -e "  cd ${INSTALL_DIR}"

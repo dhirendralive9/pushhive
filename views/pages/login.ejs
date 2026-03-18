@@ -7,6 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/dashboard.css">
+  <% if (turnstileSiteKey) { %>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <% } %>
 </head>
 <body>
   <main class="content-full">
@@ -21,18 +24,31 @@
       <% } %>
 
       <form method="POST" action="/auth/login">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+
         <div class="form-group">
           <label class="form-label">Email</label>
-          <input type="email" name="email" class="form-input" placeholder="admin@example.com" required autofocus>
+          <input type="email" name="email" class="form-input" placeholder="admin@example.com" required autofocus autocomplete="email">
         </div>
         <div class="form-group">
           <label class="form-label">Password</label>
-          <input type="password" name="password" class="form-input" placeholder="••••••••" required>
+          <input type="password" name="password" class="form-input" placeholder="••••••••" required autocomplete="current-password">
         </div>
+
+        <% if (turnstileSiteKey) { %>
+        <div class="form-group">
+          <div class="cf-turnstile" data-sitekey="<%= turnstileSiteKey %>" data-theme="dark"></div>
+        </div>
+        <% } %>
+
         <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:12px;font-size:14px;">
           Sign In
         </button>
       </form>
+
+      <p class="text-muted text-xs text-center mt-16">
+        Protected by rate limiting<%= turnstileSiteKey ? ' & Cloudflare Turnstile' : '' %>
+      </p>
     </div>
   </main>
 </body>

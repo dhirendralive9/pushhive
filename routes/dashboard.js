@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const { validateCsrfToken } = require('../middleware/security');
 const Site = require('../models/Site');
 const Subscriber = require('../models/Subscriber');
 const Campaign = require('../models/Campaign');
@@ -10,6 +11,14 @@ const webpush = require('web-push');
 
 // Apply auth middleware to all dashboard routes
 router.use(requireAuth);
+
+// Apply CSRF validation to all POST requests in dashboard
+router.use((req, res, next) => {
+  if (req.method === 'POST') {
+    return validateCsrfToken(req, res, next);
+  }
+  next();
+});
 
 // ── Dashboard Home ──────────────────────────────────────────────
 router.get('/', async (req, res) => {
