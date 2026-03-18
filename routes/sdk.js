@@ -296,7 +296,7 @@ function generateSDK(serverUrl) {
 
       if (isAndroid) {
         // Use intent:// to open in Chrome
-        var intentUrl = 'intent://' + targetUrl.replace(/^https?:\\/\\//, '') +
+        var intentUrl = 'intent://' + targetUrl.replace('https://', '').replace('http://', '') +
           '#Intent;scheme=https;package=com.android.chrome;end';
         window.location.href = intentUrl;
       } else if (isIOS) {
@@ -311,7 +311,7 @@ function generateSDK(serverUrl) {
     // ── Utility Methods ────────────────────────────────────────
     urlBase64ToUint8Array: function(base64String) {
       var padding = '='.repeat((4 - base64String.length % 4) % 4);
-      var base64 = (base64String + padding).replace(/\\-/g, '+').replace(/_/g, '/');
+      var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
       var rawData = window.atob(base64);
       var outputArray = new Uint8Array(rawData.length);
       for (var i = 0; i < rawData.length; ++i) {
@@ -321,24 +321,24 @@ function generateSDK(serverUrl) {
     },
 
     detectBrowser: function(ua) {
-      if (/Edg\\//i.test(ua)) return 'Edge';
-      if (/Chrome/i.test(ua)) return 'Chrome';
-      if (/Firefox/i.test(ua)) return 'Firefox';
-      if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) return 'Safari';
+      if (ua.indexOf('Edg/') > -1) return 'Edge';
+      if (ua.indexOf('Chrome') > -1) return 'Chrome';
+      if (ua.indexOf('Firefox') > -1) return 'Firefox';
+      if (ua.indexOf('Safari') > -1 && ua.indexOf('Chrome') === -1) return 'Safari';
       return 'Other';
     },
 
     detectBrowserVersion: function(ua) {
-      var match = ua.match(/(Chrome|Firefox|Safari|Edg)\\/([\\d.]+)/i);
-      return match ? match[2] : '';
+      var m = ua.match(/(?:Chrome|Firefox|Safari|Edg)\/([0-9.]+)/i);
+      return m ? m[1] : '';
     },
 
     detectOS: function(ua) {
-      if (/Windows/i.test(ua)) return 'Windows';
-      if (/Mac OS/i.test(ua)) return 'macOS';
-      if (/Android/i.test(ua)) return 'Android';
-      if (/iOS|iPhone|iPad/i.test(ua)) return 'iOS';
-      if (/Linux/i.test(ua)) return 'Linux';
+      if (ua.indexOf('Windows') > -1) return 'Windows';
+      if (ua.indexOf('Mac OS') > -1) return 'macOS';
+      if (ua.indexOf('Android') > -1) return 'Android';
+      if (ua.indexOf('iPhone') > -1 || ua.indexOf('iPad') > -1) return 'iOS';
+      if (ua.indexOf('Linux') > -1) return 'Linux';
       return 'Other';
     },
 
