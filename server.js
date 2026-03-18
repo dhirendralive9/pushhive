@@ -105,7 +105,15 @@ app.get('/version', (req, res) => {
 app.use('/auth', require('./routes/auth'));
 app.use('/dashboard', require('./routes/dashboard'));
 app.use('/api/v1', apiLimiter, require('./routes/external-api'));
-app.use('/api', sdkLimiter, require('./routes/api'));
+
+// SDK API needs CORS before rate limiter (preflight OPTIONS must get CORS headers)
+app.use('/api', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, X-API-Key');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+}, sdkLimiter, require('./routes/api'));
 app.use('/sdk', require('./routes/sdk'));
 
 // Root redirect

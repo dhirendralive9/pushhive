@@ -284,11 +284,27 @@ function generateSDK(serverUrl) {
         landingPage: window.location.href
       };
 
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', PushHive.serverUrl + '/api/subscribe');
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.setRequestHeader('X-API-Key', PushHive.apiKey);
-      xhr.send(JSON.stringify(data));
+      fetch(PushHive.serverUrl + '/api/subscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': PushHive.apiKey
+        },
+        body: JSON.stringify(data)
+      })
+      .then(function(response) {
+        return response.json();
+      })
+      .then(function(result) {
+        if (result.success) {
+          console.log('[PushHive] Subscribed successfully');
+        } else {
+          console.error('[PushHive] Subscribe failed:', result.error || 'Unknown error');
+        }
+      })
+      .catch(function(err) {
+        console.error('[PushHive] Subscribe request failed:', err.message);
+      });
     },
 
     // ── In-App Browser Detection & Escape ──────────────────────
