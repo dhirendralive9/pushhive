@@ -12,22 +12,48 @@ router.use((req, res, next) => {
 });
 
 // ── Serve PushHive JS SDK ───────────────────────────────────────
+const pkg = require('../package.json');
+const crypto = require('crypto');
+
 router.get('/pushhive.js', (req, res) => {
   const serverUrl = `${req.protocol}://${req.get('host')}`;
+  const sdkContent = generateSDK(serverUrl);
+  const etag = crypto.createHash('md5').update(sdkContent).digest('hex');
+
   res.set('Content-Type', 'application/javascript; charset=utf-8');
-  res.set('Cache-Control', 'public, max-age=3600');
   res.set('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.send(generateSDK(serverUrl));
+  res.set('ETag', `"${etag}"`);
+  // Short cache (5 min) so Cloudflare refreshes frequently, but still caches
+  res.set('Cache-Control', 'public, max-age=300, s-maxage=300');
+  res.set('X-PushHive-Version', pkg.version);
+
+  // Return 304 if content unchanged
+  if (req.headers['if-none-match'] === `"${etag}"`) {
+    return res.status(304).end();
+  }
+
+  res.send(sdkContent);
 });
 
 // ── Serve Service Worker ────────────────────────────────────────
 router.get('/pushhive-sw.js', (req, res) => {
   const serverUrl = `${req.protocol}://${req.get('host')}`;
+  const swContent = generateServiceWorker(serverUrl);
+  const etag = crypto.createHash('md5').update(swContent).digest('hex');
+
   res.set('Content-Type', 'application/javascript; charset=utf-8');
   res.set('Service-Worker-Allowed', '/');
-  res.set('Cache-Control', 'no-cache');
   res.set('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.send(generateServiceWorker(serverUrl));
+  res.set('ETag', `"${etag}"`);
+  // Service worker should never be cached long — browsers check for updates
+  res.set('Cache-Control', 'no-cache, must-revalidate');
+  res.set('X-PushHive-Version', pkg.version);
+
+  if (req.headers['if-none-match'] === `"${etag}"`) {
+    return res.status(304).end();
+  }
+
+  res.send(swContent);
 });
 
 function generateSDK(serverUrl) {
@@ -329,8 +355,17 @@ function generateSDK(serverUrl) {
     },
 
     detectBrowserVersion: function(ua) {
-      var m = ua.match(/(?:Chrome|Firefox|Safari|Edg)\/([0-9.]+)/i);
-      return m ? m[1] : '';
+      var browsers = ['Chrome/', 'Firefox/', 'Safari/', 'Edg/'];
+      for (var i = 0; i < browsers.length; i++) {
+        var idx = ua.indexOf(browsers[i]);
+        if (idx > -1) {
+          var start = idx + browsers[i].length;
+          var end = start;
+          while (end < ua.length && (ua[end] === '.' || (ua[end] >= '0' && ua[end] <= '9'))) end++;
+          if (end > start) return ua.substring(start, end);
+        }
+      }
+      return '';
     },
 
     detectOS: function(ua) {
@@ -343,8 +378,8 @@ function generateSDK(serverUrl) {
     },
 
     detectDevice: function(ua) {
-      if (/Mobile|Android.*Mobile|iPhone/i.test(ua)) return 'mobile';
-      if (/iPad|Tablet/i.test(ua)) return 'tablet';
+      if (ua.indexOf('Mobile') > -1 || ua.indexOf('iPhone') > -1) return 'mobile';
+      if (ua.indexOf('iPad') > -1 || ua.indexOf('Tablet') > -1) return 'tablet';
       return 'desktop';
     }
   };

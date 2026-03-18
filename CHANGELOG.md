@@ -2,6 +2,18 @@
 
 All notable changes to PushHive will be documented in this file.
 
+## [2.8.1] - 2026-03-18
+
+### Fixed
+- **SDK SyntaxError on line 168** — Apostrophe in `You're` inside single-quoted JS string within Node.js template literal caused `Unexpected identifier 're'`. Replaced with `You are`.
+- **SDK SyntaxError on line 299** — Regex patterns with `/` inside template literals produced double-escaped backslashes (`Edg\\/` instead of `Edg/`). Replaced regex-based browser/OS detection with `indexOf()` calls — zero escaping risk.
+- **Cloudflare caching stale SDK** — SDK had `max-age=3600` (1 hour) causing Cloudflare to serve old broken files. Changed to `max-age=300, s-maxage=300` (5 minutes) with ETag-based conditional requests and `X-PushHive-Version` header.
+- **Service worker caching** — Changed to `no-cache, must-revalidate` to prevent CDN caching of service worker files.
+- **ERR_BLOCKED_BY_RESPONSE.NotSameOrigin** — SDK routes now send `Cross-Origin-Resource-Policy: cross-origin` header. Helmet configured with `crossOriginResourcePolicy: { policy: 'cross-origin' }`.
+- **iOS Chrome showing wrong prompt** — Chrome/Firefox/Edge on iOS (CriOS/FxiOS/EdgiOS) no longer triggers in-app browser redirect. Shows "Open in Safari" prompt with copy URL button instead.
+- **Sidebar not scrollable** — Nav section now scrolls independently with thin scrollbar. Brand and user info stay pinned.
+- **Responsive design** — Three breakpoints: desktop (full sidebar), tablet (icon-only 64px sidebar), mobile (off-canvas hamburger menu with overlay). All two-column grids stack on mobile.
+
 ## [2.8.0] - 2026-03-18
 
 ### Added
