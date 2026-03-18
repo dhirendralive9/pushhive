@@ -140,17 +140,17 @@ router.get('/campaigns', async (req, res) => {
   }
 });
 
-// Create campaign
+// Create campaign (with optional A/B test)
 router.post('/campaigns', async (req, res) => {
   try {
     const { title, body, url, icon, image, utm, targetAll, targetTags,
-      targetDevices, targetBrowsers, actions, scheduledAt } = req.body;
+      targetDevices, targetBrowsers, actions, scheduledAt, abTest } = req.body;
 
     if (!title || !body || !url) {
       return res.status(400).json({ error: 'title, body, and url are required' });
     }
 
-    const campaign = new Campaign({
+    const campaignData = {
       siteId: req.site._id,
       title, body, url,
       icon: icon || req.site.icon || '',
@@ -169,8 +169,25 @@ router.post('/campaigns', async (req, res) => {
       actions: actions || [],
       status: scheduledAt ? 'scheduled' : 'draft',
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null
-    });
+    };
 
+    // A/B Test setup via API
+    // Example: abTest: { variantB: { title: "Alt title", body: "Alt body" }, testPercentage: 20, waitHours: 4 }
+    if (abTest && abTest.variantB && abTest.variantB.title && abTest.variantB.body) {
+      campaignData.abTest = {
+        enabled: true,
+        variants: [
+          { name: 'A', title, body, icon: icon || '', image: image || '' },
+          { name: 'B', title: abTest.variantB.title, body: abTest.variantB.body, icon: abTest.variantB.icon || icon || '', image: abTest.variantB.image || image || '' }
+        ],
+        testPercentage: abTest.testPercentage || 20,
+        waitHours: abTest.waitHours || 4,
+        winnerMetric: abTest.winnerMetric || 'ctr',
+        status: ''
+      };
+    }
+
+    const campaign = new Campaign(campaignData);
     await campaign.save();
     res.status(201).json({ success: true, data: campaign });
   } catch (err) {

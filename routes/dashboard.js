@@ -172,9 +172,11 @@ router.post('/campaigns', async (req, res) => {
   try {
     const { siteId, title, body, url, icon, image, utmSource, utmMedium,
       utmCampaign, utmTerm, utmContent, targetAll, targetTags,
-      action1Title, action1Url, action2Title, action2Url, scheduledAt } = req.body;
+      action1Title, action1Url, action2Title, action2Url, scheduledAt,
+      abEnabled, abTitleB, abBodyB, abIconB,
+      abTestPercentage, abWaitHours, abWinnerMetric } = req.body;
 
-    const campaign = new Campaign({
+    const campaignData = {
       siteId, title, body, url, icon, image,
       utm: {
         source: utmSource || 'pushhive',
@@ -191,9 +193,26 @@ router.post('/campaigns', async (req, res) => {
       ],
       status: scheduledAt ? 'scheduled' : 'draft',
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null
-    });
+    };
+
+    // A/B Testing setup
+    if (abEnabled === 'on' && abTitleB && abBodyB) {
+      campaignData.abTest = {
+        enabled: true,
+        variants: [
+          { name: 'A', title, body, icon: icon || '', image: image || '' },
+          { name: 'B', title: abTitleB, body: abBodyB, icon: abIconB || icon || '', image: image || '' }
+        ],
+        testPercentage: parseInt(abTestPercentage) || 20,
+        waitHours: parseInt(abWaitHours) || 4,
+        winnerMetric: abWinnerMetric || 'ctr',
+        status: ''
+      };
+    }
+
+    const campaign = new Campaign(campaignData);
     await campaign.save();
-    req.session.success = 'Campaign created';
+    req.session.success = `Campaign created${campaign.abTest.enabled ? ' with A/B test' : ''}`;
     res.redirect('/dashboard/campaigns');
   } catch (err) {
     req.session.error = 'Failed to create campaign: ' + err.message;

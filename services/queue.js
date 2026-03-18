@@ -34,16 +34,22 @@ function getQueue(name) {
 // ── Queue a campaign for sending ────────────────────────────────
 async function queueCampaign(campaignId, options = {}) {
   const queue = getQueue(QUEUE_NAMES.CAMPAIGN_SEND);
+  const jobId = options.sendWinner
+    ? `campaign-winner-${campaignId}`
+    : `campaign-${campaignId}`;
+
   const job = await queue.add('send', {
     campaignId: campaignId.toString(),
     batchSize: options.batchSize || 500,
     concurrency: options.concurrency || 10,
-    priority: options.priority || 0
+    priority: options.priority || 0,
+    sendWinner: options.sendWinner || false,
+    winnerVariant: options.winnerVariant || ''
   }, {
     priority: options.priority || 0,
-    jobId: `campaign-${campaignId}`
+    jobId
   });
-  console.log(`[Queue] Campaign ${campaignId} queued as job ${job.id}`);
+  console.log(`[Queue] Campaign ${campaignId} queued as job ${job.id}${options.sendWinner ? ' (winner send)' : ''}`);
   return job;
 }
 

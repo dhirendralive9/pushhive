@@ -11,25 +11,29 @@ All notable changes to PushHive will be documented in this file.
   - Automatic retry with exponential backoff (3 attempts per failed batch)
   - Progress tracking: real-time percentage visible in dashboard and via API
   - Bulk deactivation of expired subscriptions (410/404) in single MongoDB operation
+- **A/B Testing** — split test notifications to optimize engagement
+  - Create two variants (A and B) with different title, body, and icon
+  - Configurable test group size (5%-50% of subscribers)
+  - Configurable wait period (1-72 hours) before picking winner
+  - Winner decided by CTR or total clicks
+  - Automatic winner send to remaining subscribers after wait period
+  - Per-variant stats: sent, delivered, clicked, CTR
+  - A/B badge and results panel on campaign detail page
+  - Full A/B support in REST API
 - **Separate worker process** (`worker.js`) — runs independently from the API server
   - 4 specialized workers: campaign orchestrator, batch sender, completion finalizer, subscription cleanup
+  - A/B test orchestrator: splits test group, queues variant-specific batches, schedules winner evaluation
   - Configurable concurrency via `WORKER_CONCURRENCY` env var
-  - Rate limiting via `WORKER_RATE_LIMIT` env var
-  - Graceful shutdown on SIGTERM/SIGINT (finishes active batches before exiting)
-- **Redis** added to Docker stack — used for job queue, future caching, session store
-  - Persistent storage with AOF (append-only file)
-  - 256MB memory limit with LRU eviction
+  - Graceful shutdown on SIGTERM/SIGINT
+- **Redis** added to Docker stack — used for job queue, future caching
+  - Persistent storage with AOF, 256MB memory limit
   - Health check integrated
 - **Queue status dashboard** — new "Queue" page in admin panel
-  - Live stats: waiting, active, completed, failed jobs across all queues
-  - Active campaign progress bars with auto-refresh
-  - Queue breakdown table per queue type
-  - Scaling guide with worker throughput estimates
-- **Horizontal scaling** — add more worker containers for higher throughput
-  - `docker compose up -d --scale worker=4` for 4 parallel workers
-  - Each worker handles ~500 concurrent sends → 4 workers = ~2000/sec
-- **Campaign progress API** — `GET /api/v1/campaigns/:id/progress` returns live job state and percentage
-- **New campaign status: `queued`** — campaign is in the queue but not yet being processed by a worker
+  - Live stats, active campaign progress bars with auto-refresh
+  - Queue breakdown table, scaling guide with throughput estimates
+- **Horizontal scaling** — `docker compose up -d --scale worker=4`
+- **Campaign progress API** — `GET /api/v1/campaigns/:id/progress`
+- **New campaign statuses**: `queued`, `ab_testing`, `ab_waiting`, `ab_sending_winner`
 
 ### Changed
 - Campaign sends are now non-blocking (returns immediately with job ID)

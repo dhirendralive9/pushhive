@@ -132,6 +132,75 @@
     </div>
   </div>
 
+  <!-- A/B Testing -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">A/B Testing <span class="text-muted text-sm">(optional)</span></span>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" name="abEnabled" id="abEnabled" onchange="toggleAB(this.checked)">
+        <span class="form-label" style="margin:0;">Enable A/B testing</span>
+      </label>
+      <p class="form-help">Test two notification variants on a small group, then auto-send the winner to everyone else.</p>
+    </div>
+
+    <div id="ab-fields" style="display:none;">
+      <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px;">
+        <p class="text-sm" style="margin-bottom:12px;color:#fff;font-weight:500;">Variant A</p>
+        <p class="text-sm text-muted" style="margin-bottom:8px;">Uses the title and body from above (Notification Content section).</p>
+      </div>
+
+      <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:16px;">
+        <p class="text-sm" style="margin-bottom:12px;color:#fff;font-weight:500;">Variant B</p>
+        <div class="form-group">
+          <label class="form-label">Title B</label>
+          <input type="text" name="abTitleB" class="form-input" placeholder="Alternative title" maxlength="100">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Body B</label>
+          <textarea name="abBodyB" class="form-textarea" placeholder="Alternative notification body" maxlength="250"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Icon B (optional)</label>
+          <input type="url" name="abIconB" class="form-input" placeholder="Leave empty to use same icon">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Test group size</label>
+          <select name="abTestPercentage" class="form-select">
+            <option value="10">10% (5% per variant)</option>
+            <option value="20" selected>20% (10% per variant)</option>
+            <option value="30">30% (15% per variant)</option>
+            <option value="40">40% (20% per variant)</option>
+            <option value="50">50% (25% per variant)</option>
+          </select>
+          <p class="form-help">Remaining subscribers will receive the winning variant.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Wait before picking winner</label>
+          <select name="abWaitHours" class="form-select">
+            <option value="1">1 hour</option>
+            <option value="2">2 hours</option>
+            <option value="4" selected>4 hours</option>
+            <option value="8">8 hours</option>
+            <option value="12">12 hours</option>
+            <option value="24">24 hours</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Winner decided by</label>
+        <select name="abWinnerMetric" class="form-select" style="max-width:200px;">
+          <option value="ctr" selected>Click-through rate (CTR)</option>
+          <option value="clicks">Total clicks</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
   <!-- Scheduling -->
   <div class="card">
     <div class="card-header">
@@ -149,5 +218,11 @@
     <a href="/dashboard/campaigns" class="btn btn-outline">Cancel</a>
   </div>
 </form>
+
+<script>
+function toggleAB(enabled) {
+  document.getElementById('ab-fields').style.display = enabled ? 'block' : 'none';
+}
+</script>
 
 <%- include('../partials/footer') %>

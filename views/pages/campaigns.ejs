@@ -24,18 +24,22 @@
         </tr>
       </thead>
       <tbody>
-        <% campaigns.forEach(function(c) { %>
+        <% campaigns.forEach(function(c) {
+          var isAB = c.abTest && c.abTest.enabled;
+          var statusClass = c.status === 'sent' ? 'success' : ['sending','queued','ab_testing','ab_waiting','ab_sending_winner'].includes(c.status) ? 'warning' : c.status === 'failed' ? 'danger' : c.status === 'scheduled' ? 'warning' : 'primary';
+        %>
         <tr>
           <td>
             <a href="/dashboard/campaigns/<%= c._id %>" style="color:var(--primary-hover);text-decoration:none;font-weight:500;">
               <%= c.title %>
+              <% if (isAB) { %><span class="badge badge-primary" style="font-size:9px;margin-left:4px;">A/B</span><% } %>
             </a>
             <div class="text-muted text-xs truncate"><%= c.body %></div>
           </td>
           <td class="text-muted"><%= c.siteId ? c.siteId.name : '—' %></td>
           <td>
-            <span class="badge badge-<%= c.status === 'sent' ? 'success' : (c.status === 'sending' || c.status === 'queued') ? 'warning' : c.status === 'failed' ? 'danger' : c.status === 'scheduled' ? 'warning' : 'primary' %>">
-              <%= c.status %>
+            <span class="badge badge-<%= statusClass %>">
+              <%= c.status.replace(/_/g, ' ') %>
             </span>
           </td>
           <td><%= c.stats.sent.toLocaleString() %></td>

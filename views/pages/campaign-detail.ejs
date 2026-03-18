@@ -67,6 +67,69 @@
   </div>
 </div>
 
+<!-- A/B Test Results -->
+<% if (campaign.abTest && campaign.abTest.enabled && campaign.abTest.variants && campaign.abTest.variants.length === 2) { %>
+<div class="card mt-24">
+  <div class="card-header">
+    <span class="card-title">A/B Test Results</span>
+    <% if (campaign.abTest.winnerVariant) { %>
+      <span class="badge badge-success">Winner: Variant <%= campaign.abTest.winnerVariant %></span>
+    <% } else if (campaign.abTest.status === 'testing' || campaign.status === 'ab_testing') { %>
+      <span class="badge badge-warning">Testing in progress</span>
+    <% } else if (campaign.status === 'ab_waiting') { %>
+      <span class="badge badge-warning">Waiting for results (<%= campaign.abTest.waitHours %>h)</span>
+    <% } %>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <% campaign.abTest.variants.forEach(function(v) {
+      var isWinner = campaign.abTest.winnerVariant === v.name;
+      var vCtr = v.stats.sent > 0 ? ((v.stats.clicked / v.stats.sent) * 100).toFixed(1) : '0.0';
+    %>
+    <div style="background:var(--bg-input);border:2px solid <%= isWinner ? 'var(--success)' : 'var(--border)' %>;border-radius:var(--radius);padding:20px;position:relative;">
+      <% if (isWinner) { %>
+      <span class="badge badge-success" style="position:absolute;top:12px;right:12px;">Winner</span>
+      <% } %>
+      <div style="font-size:16px;font-weight:600;color:#fff;margin-bottom:12px;">Variant <%= v.name %></div>
+      <table>
+        <tr><td class="text-muted text-sm" style="padding:4px 12px 4px 0;">Title</td><td class="text-sm"><strong><%= v.title %></strong></td></tr>
+        <tr><td class="text-muted text-sm" style="padding:4px 12px 4px 0;">Body</td><td class="text-sm"><%= v.body %></td></tr>
+      </table>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:16px;">
+        <div>
+          <div class="text-xs text-muted" style="text-transform:uppercase;letter-spacing:0.05em;">Sent</div>
+          <div style="font-size:20px;font-weight:700;color:#fff;"><%= (v.stats.sent || 0).toLocaleString() %></div>
+        </div>
+        <div>
+          <div class="text-xs text-muted" style="text-transform:uppercase;letter-spacing:0.05em;">Clicked</div>
+          <div style="font-size:20px;font-weight:700;color:var(--primary-hover);"><%= (v.stats.clicked || 0).toLocaleString() %></div>
+        </div>
+        <div>
+          <div class="text-xs text-muted" style="text-transform:uppercase;letter-spacing:0.05em;">CTR</div>
+          <div style="font-size:20px;font-weight:700;color:<%= isWinner ? 'var(--success)' : '#fff' %>;"><%= vCtr %>%</div>
+        </div>
+        <div>
+          <div class="text-xs text-muted" style="text-transform:uppercase;letter-spacing:0.05em;">Failed</div>
+          <div style="font-size:20px;font-weight:700;color:var(--danger);"><%= (v.stats.failed || 0).toLocaleString() %></div>
+        </div>
+      </div>
+    </div>
+    <% }) %>
+  </div>
+
+  <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;">
+    <table>
+      <tr><td class="text-muted text-sm" style="padding:2px 12px 2px 0;">Test group</td><td class="text-sm"><%= campaign.abTest.testPercentage %>% of subscribers</td></tr>
+      <tr><td class="text-muted text-sm" style="padding:2px 12px 2px 0;">Wait time</td><td class="text-sm"><%= campaign.abTest.waitHours %> hours</td></tr>
+      <tr><td class="text-muted text-sm" style="padding:2px 12px 2px 0;">Winner metric</td><td class="text-sm"><%= campaign.abTest.winnerMetric === 'ctr' ? 'Click-through rate' : 'Total clicks' %></td></tr>
+      <% if (campaign.abTest.winnerSentAt) { %>
+      <tr><td class="text-muted text-sm" style="padding:2px 12px 2px 0;">Winner sent at</td><td class="text-sm"><%= new Date(campaign.abTest.winnerSentAt).toLocaleString() %></td></tr>
+      <% } %>
+    </table>
+  </div>
+</div>
+<% } %>
+
 <!-- Click Analytics -->
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
   <div class="card">

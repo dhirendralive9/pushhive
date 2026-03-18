@@ -9,6 +9,9 @@ const eventSchema = new mongoose.Schema({
     enum: ['delivered', 'clicked', 'dismissed', 'failed'],
     required: true
   },
+  // A/B testing
+  variantId: { type: mongoose.Schema.Types.ObjectId },
+  variantName: { type: String, default: '' },
   // UTM data captured on click
   utm: {
     source: String,
@@ -29,5 +32,6 @@ const eventSchema = new mongoose.Schema({
 eventSchema.index({ siteId: 1, campaignId: 1, type: 1 });
 eventSchema.index({ siteId: 1, createdAt: -1 });
 eventSchema.index({ campaignId: 1, type: 1 });
+eventSchema.index({ campaignId: 1, variantName: 1, type: 1 });
 
 module.exports = mongoose.model('Event', eventSchema);

@@ -10,7 +10,6 @@ const Site = require('./models/Site');
 const Event = require('./models/Event');
 
 const WORKER_ID = process.env.WORKER_ID || `worker-${process.pid}`;
-
 console.log(`[${WORKER_ID}] Starting PushHive worker...`);
 
 // ── MongoDB Connection ──────────────────────────────────────────
@@ -25,17 +24,16 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY
 );
 
-// ── Worker 1: Campaign Orchestrator ─────────────────────────────
-// Takes a campaign, splits subscribers into batches, queues each batch
+// ═══════════════════════════════════════════════════════════════
+// Worker 1: Campaign Orchestrator
+// Splits campaign into batches. Handles both normal and A/B sends.
+// ═══════════════════════════════════════════════════════════════
 const campaignWorker = new Worker(QUEUE_NAMES.CAMPAIGN_SEND, async (job) => {
-  const { campaignId, batchSize = 500 } = job.data;
-  console.log(`[${WORKER_ID}] Processing campaign: ${campaignId}`);
+  const { campaignId, batchSize = 500, sendWinner = false, winnerVariant = '' } = job.data;
+  console.log(`[${WORKER_ID}] Processing campaign: ${campaignId}${sendWinner ? ' (winner: ' + winnerVariant + ')' : ''}`);
 
   const campaign = await Campaign.findById(campaignId);
   if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
-
-  campaign.status = 'sending';
-  await campaign.save();
 
   // Build subscriber filter
   const filter = { siteId: campaign.siteId, active: true };
@@ -49,167 +47,283 @@ const campaignWorker = new Worker(QUEUE_NAMES.CAMPAIGN_SEND, async (job) => {
     filter.device = { $in: campaign.targetDevices };
   }
 
-  // Count total
   const totalSubs = await Subscriber.countDocuments(filter);
-  campaign.stats.targeted = totalSubs;
-  await campaign.save();
 
   if (totalSubs === 0) {
     campaign.status = 'sent';
     campaign.sentAt = new Date();
-    campaign.stats.sent = 0;
     await campaign.save();
     return { campaignId, totalSubs: 0, batches: 0 };
   }
 
-  // Build notification payload
-  const notificationUrl = campaign.buildUrl();
-  const payload = JSON.stringify({
-    title: campaign.title,
-    body: campaign.body,
-    icon: campaign.icon || '',
-    image: campaign.image || '',
-    badge: campaign.badge || '',
-    url: notificationUrl,
-    campaignId: campaign._id.toString(),
-    siteId: campaign.siteId.toString(),
-    actions: campaign.actions || [],
-    utm: campaign.utm
-  });
+  // ── A/B Test: Send to test group only ─────────────────────
+  if (campaign.abTest.enabled && !sendWinner && campaign.abTest.variants.length === 2) {
+    campaign.status = 'ab_testing';
+    campaign.abTest.status = 'testing';
+    campaign.stats.targeted = totalSubs;
+    await campaign.save();
 
-  // Fetch subscriber IDs in batches using cursor for memory efficiency
-  const totalBatches = Math.ceil(totalSubs / batchSize);
-  let batchNum = 0;
+    const testCount = Math.ceil(totalSubs * (campaign.abTest.testPercentage / 100));
+    const perVariant = Math.ceil(testCount / 2);
 
-  for (let skip = 0; skip < totalSubs; skip += batchSize) {
-    const subscriberBatch = await Subscriber.find(filter)
+    console.log(`[${WORKER_ID}] A/B Test: ${testCount} test subs (${perVariant} per variant), ${totalSubs - testCount} remaining for winner`);
+
+    // Fetch test subscribers
+    const testSubscribers = await Subscriber.find(filter)
       .select('_id subscription browser os device')
-      .skip(skip)
-      .limit(batchSize)
+      .limit(testCount)
       .lean();
 
-    if (subscriberBatch.length === 0) break;
+    const halfPoint = Math.ceil(testSubscribers.length / 2);
+    const groupA = testSubscribers.slice(0, halfPoint);
+    const groupB = testSubscribers.slice(halfPoint);
 
+    const variantA = campaign.abTest.variants[0];
+    const variantB = campaign.abTest.variants[1];
+
+    // Build payloads for each variant
+    const payloadA = JSON.stringify(campaign.getVariantPayload(variantA.name));
+    const payloadB = JSON.stringify(campaign.getVariantPayload(variantB.name));
+
+    // Queue batches for variant A
+    const batchesA = Math.ceil(groupA.length / batchSize);
+    for (let i = 0; i < groupA.length; i += batchSize) {
+      const batch = groupA.slice(i, i + batchSize);
+      await queueBatch({
+        campaignId: campaign._id.toString(),
+        siteId: campaign.siteId.toString(),
+        batchNum: Math.ceil(i / batchSize) + 1,
+        totalBatches: batchesA + Math.ceil(groupB.length / batchSize),
+        payload: payloadA,
+        variantName: variantA.name,
+        variantId: variantA._id.toString(),
+        subscribers: batch.map(s => ({ _id: s._id.toString(), subscription: s.subscription, browser: s.browser, os: s.os, device: s.device }))
+      });
+    }
+
+    // Queue batches for variant B
+    for (let i = 0; i < groupB.length; i += batchSize) {
+      const batch = groupB.slice(i, i + batchSize);
+      await queueBatch({
+        campaignId: campaign._id.toString(),
+        siteId: campaign.siteId.toString(),
+        batchNum: batchesA + Math.ceil(i / batchSize) + 1,
+        totalBatches: batchesA + Math.ceil(groupB.length / batchSize),
+        payload: payloadB,
+        variantName: variantB.name,
+        variantId: variantB._id.toString(),
+        subscribers: batch.map(s => ({ _id: s._id.toString(), subscription: s.subscription, browser: s.browser, os: s.os, device: s.device }))
+      });
+    }
+
+    // Update variant targeted counts
+    variantA.stats.targeted = groupA.length;
+    variantB.stats.targeted = groupB.length;
+    await campaign.save();
+
+    // Schedule winner evaluation
+    const { getQueue } = require('./services/queue');
+    const abQueue = getQueue(QUEUE_NAMES.CAMPAIGN_COMPLETE);
+    await abQueue.add('evaluate-ab', {
+      campaignId: campaign._id.toString(),
+      type: 'ab_evaluate'
+    }, {
+      delay: campaign.abTest.waitHours * 60 * 60 * 1000,
+      jobId: `ab-evaluate-${campaignId}`
+    });
+
+    console.log(`[${WORKER_ID}] A/B test sent. Winner evaluation in ${campaign.abTest.waitHours}h`);
+    return { campaignId, mode: 'ab_test', groupA: groupA.length, groupB: groupB.length };
+  }
+
+  // ── Normal send (or winner send) ──────────────────────────
+  if (sendWinner) {
+    campaign.status = 'ab_sending_winner';
+    campaign.abTest.status = 'winner_sent';
+  } else {
+    campaign.status = 'sending';
+  }
+  campaign.stats.targeted = totalSubs;
+  await campaign.save();
+
+  // Determine payload
+  let payload;
+  if (sendWinner && winnerVariant) {
+    payload = JSON.stringify(campaign.getVariantPayload(winnerVariant));
+  } else {
+    payload = JSON.stringify({
+      title: campaign.title, body: campaign.body,
+      icon: campaign.icon || '', image: campaign.image || '',
+      badge: campaign.badge || '', url: campaign.buildUrl(),
+      campaignId: campaign._id.toString(), siteId: campaign.siteId.toString(),
+      actions: campaign.actions || [], utm: campaign.utm
+    });
+  }
+
+  // For winner sends, exclude subscribers who already received the test
+  let skipIds = [];
+  if (sendWinner) {
+    const alreadySent = await Event.find({
+      campaignId: campaign._id,
+      type: 'delivered'
+    }).select('subscriberId').lean();
+    skipIds = alreadySent.map(e => e.subscriberId.toString());
+    if (skipIds.length > 0) {
+      filter._id = { $nin: skipIds.map(id => new mongoose.Types.ObjectId(id)) };
+    }
+  }
+
+  const remainingSubs = await Subscriber.countDocuments(filter);
+  const totalBatches = Math.ceil(remainingSubs / batchSize);
+  let batchNum = 0;
+
+  for (let skip = 0; skip < remainingSubs; skip += batchSize) {
+    const subscriberBatch = await Subscriber.find(filter)
+      .select('_id subscription browser os device')
+      .skip(skip).limit(batchSize).lean();
+
+    if (subscriberBatch.length === 0) break;
     batchNum++;
+
     await queueBatch({
       campaignId: campaign._id.toString(),
       siteId: campaign.siteId.toString(),
-      batchNum,
-      totalBatches,
-      payload,
-      subscribers: subscriberBatch.map(s => ({
-        _id: s._id.toString(),
-        subscription: s.subscription,
-        browser: s.browser,
-        os: s.os,
-        device: s.device
-      }))
+      batchNum, totalBatches, payload,
+      variantName: winnerVariant || '',
+      subscribers: subscriberBatch.map(s => ({ _id: s._id.toString(), subscription: s.subscription, browser: s.browser, os: s.os, device: s.device }))
     });
 
-    // Update progress
     await job.updateProgress(Math.round((batchNum / totalBatches) * 100));
   }
 
-  // Queue the completion job (runs after batches finish)
   await queueCompletion(campaign._id);
-
-  console.log(`[${WORKER_ID}] Campaign ${campaignId}: queued ${batchNum} batches for ${totalSubs} subscribers`);
-  return { campaignId, totalSubs, batches: batchNum };
+  console.log(`[${WORKER_ID}] Campaign ${campaignId}: queued ${batchNum} batches for ${remainingSubs} subscribers`);
+  return { campaignId, totalSubs: remainingSubs, batches: batchNum };
 
 }, {
   connection: createConnection(),
-  concurrency: 2, // Process 2 campaigns simultaneously
-  limiter: { max: 5, duration: 60000 } // Max 5 campaigns per minute
+  concurrency: 2,
+  limiter: { max: 5, duration: 60000 }
 });
 
-// ── Worker 2: Push Batch Sender ─────────────────────────────────
-// Receives a batch of ~500 subscribers and sends notifications
+// ═══════════════════════════════════════════════════════════════
+// Worker 2: Push Batch Sender (handles both normal and A/B batches)
+// ═══════════════════════════════════════════════════════════════
 const batchWorker = new Worker(QUEUE_NAMES.PUSH_BATCH, async (job) => {
-  const { campaignId, siteId, batchNum, totalBatches, payload, subscribers } = job.data;
+  const { campaignId, siteId, batchNum, totalBatches, payload, subscribers, variantName, variantId } = job.data;
   let sent = 0, failed = 0;
   const failedEndpoints = [];
 
-  // Send all in parallel with concurrency limit
-  const CONCURRENT = 50; // 50 simultaneous sends
+  const CONCURRENT = 50;
   for (let i = 0; i < subscribers.length; i += CONCURRENT) {
     const chunk = subscribers.slice(i, i + CONCURRENT);
-
     await Promise.allSettled(
       chunk.map(async (sub) => {
         try {
           await webpush.sendNotification(sub.subscription, payload);
           sent++;
-
-          // Log delivery event (fire and forget)
           Event.create({
-            siteId,
-            campaignId,
-            subscriberId: sub._id,
-            type: 'delivered',
-            browser: sub.browser,
-            os: sub.os,
-            device: sub.device
+            siteId, campaignId, subscriberId: sub._id, type: 'delivered',
+            browser: sub.browser, os: sub.os, device: sub.device,
+            variantName: variantName || '', variantId: variantId || undefined
           }).catch(() => {});
-
         } catch (err) {
           failed++;
-
-          // Mark gone subscriptions for cleanup
           if (err.statusCode === 410 || err.statusCode === 404) {
             failedEndpoints.push(sub._id);
           }
-
           Event.create({
-            siteId,
-            campaignId,
-            subscriberId: sub._id,
-            type: 'failed'
+            siteId, campaignId, subscriberId: sub._id, type: 'failed',
+            variantName: variantName || '', variantId: variantId || undefined
           }).catch(() => {});
         }
       })
     );
   }
 
-  // Deactivate gone subscriptions in bulk
   if (failedEndpoints.length > 0) {
-    await Subscriber.updateMany(
-      { _id: { $in: failedEndpoints } },
-      { active: false, unsubscribedAt: new Date() }
-    );
+    await Subscriber.updateMany({ _id: { $in: failedEndpoints } }, { active: false, unsubscribedAt: new Date() });
   }
 
   // Update campaign stats atomically
   await Campaign.findByIdAndUpdate(campaignId, {
-    $inc: {
-      'stats.sent': sent,
-      'stats.delivered': sent,
-      'stats.failed': failed
-    }
+    $inc: { 'stats.sent': sent, 'stats.delivered': sent, 'stats.failed': failed }
   });
 
-  const progress = Math.round((batchNum / totalBatches) * 100);
-  await job.updateProgress(progress);
+  // Update variant stats if A/B
+  if (variantName) {
+    await Campaign.findOneAndUpdate(
+      { _id: campaignId, 'abTest.variants.name': variantName },
+      { $inc: {
+        'abTest.variants.$.stats.sent': sent,
+        'abTest.variants.$.stats.delivered': sent,
+        'abTest.variants.$.stats.failed': failed
+      }}
+    );
+  }
 
+  await job.updateProgress(Math.round((batchNum / totalBatches) * 100));
   return { batchNum, sent, failed, cleaned: failedEndpoints.length };
 
 }, {
   connection: createConnection(),
   concurrency: parseInt(process.env.WORKER_CONCURRENCY) || 10,
-  limiter: {
-    max: parseInt(process.env.WORKER_RATE_LIMIT) || 50,
-    duration: 1000 // Max 50 batches per second
-  }
+  limiter: { max: parseInt(process.env.WORKER_RATE_LIMIT) || 50, duration: 1000 }
 });
 
-// ── Worker 3: Campaign Completion ───────────────────────────────
-// Runs after all batches, finalizes campaign stats
+// ═══════════════════════════════════════════════════════════════
+// Worker 3: Campaign Completion + A/B Winner Evaluation
+// ═══════════════════════════════════════════════════════════════
 const completionWorker = new Worker(QUEUE_NAMES.CAMPAIGN_COMPLETE, async (job) => {
-  const { campaignId } = job.data;
+  const { campaignId, type } = job.data;
 
+  // ── A/B Winner Evaluation ───────────────────────────────────
+  if (type === 'ab_evaluate') {
+    console.log(`[${WORKER_ID}] Evaluating A/B winner for campaign ${campaignId}`);
+    const campaign = await Campaign.findById(campaignId);
+    if (!campaign || !campaign.abTest.enabled) return;
+
+    const variantA = campaign.abTest.variants[0];
+    const variantB = campaign.abTest.variants[1];
+
+    // Get click stats per variant from events
+    const [clicksA, clicksB] = await Promise.all([
+      Event.countDocuments({ campaignId, variantName: variantA.name, type: 'clicked' }),
+      Event.countDocuments({ campaignId, variantName: variantB.name, type: 'clicked' })
+    ]);
+
+    variantA.stats.clicked = clicksA;
+    variantB.stats.clicked = clicksB;
+
+    // Calculate CTR
+    const ctrA = variantA.stats.sent > 0 ? (clicksA / variantA.stats.sent) * 100 : 0;
+    const ctrB = variantB.stats.sent > 0 ? (clicksB / variantB.stats.sent) * 100 : 0;
+
+    let winner;
+    if (campaign.abTest.winnerMetric === 'clicks') {
+      winner = clicksA >= clicksB ? variantA.name : variantB.name;
+    } else {
+      winner = ctrA >= ctrB ? variantA.name : variantB.name;
+    }
+
+    campaign.abTest.winnerVariant = winner;
+    campaign.abTest.status = 'winner_sent';
+    campaign.status = 'ab_sending_winner';
+    await campaign.save();
+
+    console.log(`[${WORKER_ID}] A/B Winner: ${winner} (A: ${ctrA.toFixed(1)}% CTR, ${clicksA} clicks | B: ${ctrB.toFixed(1)}% CTR, ${clicksB} clicks)`);
+
+    // Queue the winner send to remaining subscribers
+    const { queueCampaign } = require('./services/queue');
+    await queueCampaign(campaignId, { sendWinner: true, winnerVariant: winner });
+
+    return { campaignId, winner, ctrA: ctrA.toFixed(2), ctrB: ctrB.toFixed(2) };
+  }
+
+  // ── Normal Campaign Completion ──────────────────────────────
   const campaign = await Campaign.findById(campaignId);
   if (!campaign) return;
 
-  // Final stats from events collection (source of truth)
   const [delivered, failedCount] = await Promise.all([
     Event.countDocuments({ campaignId, type: 'delivered' }),
     Event.countDocuments({ campaignId, type: 'failed' })
@@ -220,13 +334,14 @@ const completionWorker = new Worker(QUEUE_NAMES.CAMPAIGN_COMPLETE, async (job) =
   campaign.stats.failed = failedCount;
   campaign.status = 'sent';
   campaign.sentAt = new Date();
+
+  if (campaign.abTest.enabled) {
+    campaign.abTest.status = 'complete';
+  }
+
   await campaign.save();
 
-  // Update site subscriber count
-  const activeCount = await Subscriber.countDocuments({
-    siteId: campaign.siteId,
-    active: true
-  });
+  const activeCount = await Subscriber.countDocuments({ siteId: campaign.siteId, active: true });
   await Site.findByIdAndUpdate(campaign.siteId, { subscriberCount: activeCount });
 
   console.log(`[${WORKER_ID}] Campaign "${campaign.title}" complete: ${delivered} delivered, ${failedCount} failed`);
@@ -237,78 +352,48 @@ const completionWorker = new Worker(QUEUE_NAMES.CAMPAIGN_COMPLETE, async (job) =
   concurrency: 5
 });
 
-// ── Worker 4: Subscription Cleanup ──────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// Worker 4: Subscription Cleanup
+// ═══════════════════════════════════════════════════════════════
 const cleanupWorker = new Worker(QUEUE_NAMES.PUSH_CLEANUP, async (job) => {
   const { siteId } = job.data;
-  console.log(`[${WORKER_ID}] Cleaning stale subscriptions for site ${siteId}`);
-
-  const subscribers = await Subscriber.find({ siteId, active: true })
-    .select('_id subscription').lean();
-
+  const subscribers = await Subscriber.find({ siteId, active: true }).select('_id subscription').lean();
   let cleaned = 0;
   const BATCH = 200;
 
   for (let i = 0; i < subscribers.length; i += BATCH) {
     const batch = subscribers.slice(i, i + BATCH);
     const stale = [];
-
     await Promise.allSettled(
       batch.map(sub =>
         webpush.sendNotification(sub.subscription, null, { TTL: 0 })
-          .catch(err => {
-            if (err.statusCode === 410 || err.statusCode === 404) {
-              stale.push(sub._id);
-            }
-          })
+          .catch(err => { if (err.statusCode === 410 || err.statusCode === 404) stale.push(sub._id); })
       )
     );
-
     if (stale.length > 0) {
-      await Subscriber.updateMany(
-        { _id: { $in: stale } },
-        { active: false, unsubscribedAt: new Date() }
-      );
+      await Subscriber.updateMany({ _id: { $in: stale } }, { active: false, unsubscribedAt: new Date() });
       cleaned += stale.length;
     }
-
     await job.updateProgress(Math.round(((i + BATCH) / subscribers.length) * 100));
   }
 
   const remaining = await Subscriber.countDocuments({ siteId, active: true });
   await Site.findByIdAndUpdate(siteId, { subscriberCount: remaining });
-
-  console.log(`[${WORKER_ID}] Cleanup done: ${cleaned} removed, ${remaining} active`);
   return { cleaned, remaining };
-
-}, {
-  connection: createConnection(),
-  concurrency: 2
-});
+}, { connection: createConnection(), concurrency: 2 });
 
 // ── Error Handlers ──────────────────────────────────────────────
 [campaignWorker, batchWorker, completionWorker, cleanupWorker].forEach(w => {
-  w.on('failed', (job, err) => {
-    console.error(`[${WORKER_ID}] Job ${job?.id} failed on ${w.name}:`, err.message);
-  });
-  w.on('error', (err) => {
-    console.error(`[${WORKER_ID}] Worker ${w.name} error:`, err.message);
-  });
+  w.on('failed', (job, err) => console.error(`[${WORKER_ID}] Job ${job?.id} failed on ${w.name}:`, err.message));
+  w.on('error', (err) => console.error(`[${WORKER_ID}] Worker ${w.name} error:`, err.message));
 });
 
 // ── Scheduled Campaign Checker ──────────────────────────────────
-// Polls MongoDB for scheduled campaigns and queues them
 const { queueCampaign } = require('./services/queue');
-
 async function checkScheduledCampaigns() {
   try {
-    const now = new Date();
-    const dueCampaigns = await Campaign.find({
-      status: 'scheduled',
-      scheduledAt: { $lte: now }
-    });
-
-    for (const campaign of dueCampaigns) {
-      console.log(`[${WORKER_ID}] Scheduled campaign due: ${campaign.title}`);
+    const due = await Campaign.find({ status: 'scheduled', scheduledAt: { $lte: new Date() } });
+    for (const campaign of due) {
       campaign.status = 'queued';
       await campaign.save();
       await queueCampaign(campaign._id);
@@ -317,28 +402,17 @@ async function checkScheduledCampaigns() {
     console.error(`[${WORKER_ID}] Schedule check error:`, err.message);
   }
 }
-
-// Check every 30 seconds
 setInterval(checkScheduledCampaigns, 30000);
-checkScheduledCampaigns(); // Run immediately
+checkScheduledCampaigns();
 
 // ── Graceful Shutdown ───────────────────────────────────────────
 async function shutdown(signal) {
-  console.log(`[${WORKER_ID}] ${signal} received, shutting down gracefully...`);
-  await Promise.all([
-    campaignWorker.close(),
-    batchWorker.close(),
-    completionWorker.close(),
-    cleanupWorker.close()
-  ]);
+  console.log(`[${WORKER_ID}] ${signal} received, shutting down...`);
+  await Promise.all([campaignWorker.close(), batchWorker.close(), completionWorker.close(), cleanupWorker.close()]);
   await mongoose.disconnect();
-  console.log(`[${WORKER_ID}] Shutdown complete`);
   process.exit(0);
 }
-
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-console.log(`[${WORKER_ID}] ✓ All workers started`);
-console.log(`[${WORKER_ID}]   Batch concurrency: ${process.env.WORKER_CONCURRENCY || 10}`);
-console.log(`[${WORKER_ID}]   Rate limit: ${process.env.WORKER_RATE_LIMIT || 50} batches/sec`);
+console.log(`[${WORKER_ID}] ✓ All workers started (concurrency: ${process.env.WORKER_CONCURRENCY || 10})`);
