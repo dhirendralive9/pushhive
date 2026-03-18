@@ -19,47 +19,56 @@ A free alternative to OneSignal, PushEngage, and similar services. Host it yours
 - **REST API** — Programmatic access for all operations
 - **One-Command Install** — Full setup script with SSL
 
-## Quick Install
+## Quick Install (Docker — Recommended)
 
 ```bash
-git clone https://github.com/dhirendralive9/pushhive.git
+git clone https://github.com/yourusername/pushhive.git
 cd pushhive
 sudo bash install.sh
 ```
 
 The installer will:
-1. Install Node.js, MongoDB, Nginx, PM2
-2. Generate VAPID keys automatically
-3. Create your admin account in the database
-4. Configure Nginx with SSL (Let's Encrypt)
-5. Start the application with PM2
+1. Install Docker & Docker Compose (if not present)
+2. Install Nginx for reverse proxy
+3. Generate VAPID keys automatically
+4. Build and start containers (Node.js app + MongoDB)
+5. Create your admin account in MongoDB
+6. Configure Nginx with SSL (Let's Encrypt)
 
-## Manual Setup
+**Requirements:** Any Linux server (Ubuntu, Debian, CentOS, etc.) with 1GB+ RAM. Works on x86_64 and ARM64.
+
+## Manual Docker Setup
 
 ```bash
-git clone https://github.com/dhirendralive9/pushhive.git
+git clone https://github.com/yourusername/pushhive.git
 cd pushhive
-npm install
 cp .env.example .env
 ```
 
 Generate VAPID keys:
 ```bash
+docker run --rm node:20-alpine sh -c "npm install web-push --silent && npx web-push generate-vapid-keys"
+```
+
+Edit `.env` with your VAPID keys and session secret, then:
+```bash
+docker compose up -d
+docker compose exec app node seed.js admin@example.com yourpassword Admin
+```
+
+## Manual Setup (Without Docker)
+
+```bash
+git clone https://github.com/yourusername/pushhive.git
+cd pushhive
+npm install
+cp .env.example .env
 npx web-push generate-vapid-keys
 ```
 
 Edit `.env` with your settings, then:
 ```bash
-node -e "
-require('dotenv').config();
-const mongoose = require('mongoose');
-const Admin = require('./models/Admin');
-mongoose.connect(process.env.MONGODB_URI).then(async () => {
-  await new Admin({ email: 'you@example.com', password: 'yourpassword', name: 'Admin' }).save();
-  console.log('Admin created');
-  process.exit();
-});
-"
+node seed.js admin@example.com yourpassword Admin
 npm start
 ```
 
@@ -81,9 +90,9 @@ importScripts('https://your-pushhive-server.com/sdk/pushhive-sw.js');
 ## Tech Stack
 
 - **Backend:** Node.js, Express, MongoDB, Mongoose
-- **Frontend:** EJS, Tailwind-inspired CSS, Chart.js
+- **Frontend:** EJS, Custom CSS (dark theme), Chart.js
 - **Push:** Web Push API, VAPID, Service Workers
-- **Infra:** PM2, Nginx, Let's Encrypt
+- **Infra:** Docker, Docker Compose, Nginx, Let's Encrypt
 
 ## API Endpoints
 
@@ -96,36 +105,43 @@ importScripts('https://your-pushhive-server.com/sdk/pushhive-sw.js');
 
 ## Requirements
 
-- Ubuntu 20.04+ / Debian 11+
+- Any Linux server (Ubuntu, Debian, CentOS, Amazon Linux, etc.)
 - 1GB RAM minimum
 - Domain name with DNS pointing to your server
 - Ports 80 and 443 open
+- Docker will be installed automatically if not present
 
 ## Project Structure
 
 ```
 pushhive/
-├── server.js           # Express app entry point
-├── install.sh          # One-command installer
+├── server.js              # Express app entry point
+├── seed.js                # Admin account seeder
+├── install.sh             # One-command Docker installer
+├── Dockerfile             # Node.js app container
+├── docker-compose.yml     # App + MongoDB orchestration
 ├── package.json
 ├── .env.example
 ├── models/
-│   ├── Admin.js        # Admin accounts
-│   ├── Site.js         # Registered websites
-│   ├── Subscriber.js   # Push subscriptions
-│   ├── Campaign.js     # Notification campaigns
-│   └── Event.js        # Tracking events
+│   ├── Admin.js           # Admin accounts
+│   ├── Site.js            # Registered websites
+│   ├── Subscriber.js      # Push subscriptions
+│   ├── Campaign.js        # Notification campaigns
+│   └── Event.js           # Tracking events
 ├── routes/
-│   ├── auth.js         # Login/logout
-│   ├── dashboard.js    # Admin dashboard
-│   ├── api.js          # Public API
-│   └── sdk.js          # JS SDK & service worker
+│   ├── auth.js            # Login/logout
+│   ├── dashboard.js       # Admin dashboard
+│   ├── api.js             # SDK API (subscribe/track)
+│   ├── external-api.js    # REST API v1
+│   └── sdk.js             # JS SDK & service worker
+├── services/
+│   ├── scheduler.js       # Campaign scheduler (cron)
+│   └── notifications.js   # Push send helpers
 ├── middleware/
-│   └── auth.js         # Session & API key auth
+│   └── auth.js            # Session & API key auth
 ├── views/
 │   ├── partials/
-│   ├── pages/
-│   └── layouts/
+│   └── pages/
 └── public/
     ├── css/
     └── js/

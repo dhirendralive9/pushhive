@@ -3,7 +3,7 @@ set -e
 
 # ─────────────────────────────────────────────────────────────────
 # PushHive — Self-Hosted Web Push Notification System
-# One-command installer for Ubuntu/Debian
+# Docker-based installer for any Linux server
 # ─────────────────────────────────────────────────────────────────
 
 BOLD='\033[1m'
@@ -17,6 +17,7 @@ echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}${BOLD}║           PushHive Installer v1.0            ║${NC}"
 echo -e "${CYAN}${BOLD}║   Self-Hosted Web Push Notification System   ║${NC}"
+echo -e "${CYAN}${BOLD}║            (Docker Edition)                  ║${NC}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 
@@ -65,72 +66,53 @@ echo ""
 echo -e "${YELLOW}Installing PushHive...${NC}"
 echo ""
 
-# ── Install System Dependencies ──────────────────────────────────
-echo -e "${BOLD}[1/8] Installing system dependencies...${NC}"
-apt-get update -qq
-apt-get install -y -qq curl git build-essential nginx > /dev/null 2>&1
-echo -e "${GREEN}✓ System dependencies installed${NC}"
-
-# ── Install Node.js (LTS) ───────────────────────────────────────
-echo -e "${BOLD}[2/8] Installing Node.js...${NC}"
-if command -v node &> /dev/null; then
-  NODE_VER=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
-  if [ "$NODE_VER" -ge 18 ]; then
-    echo -e "${GREEN}✓ Node.js $(node -v) already installed${NC}"
-  else
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null 2>&1
-    apt-get install -y -qq nodejs > /dev/null 2>&1
-    echo -e "${GREEN}✓ Node.js $(node -v) installed${NC}"
-  fi
+# ── Step 1: Install Docker ──────────────────────────────────────
+echo -e "${BOLD}[1/6] Installing Docker...${NC}"
+if command -v docker &> /dev/null; then
+  echo -e "${GREEN}✓ Docker already installed ($(docker --version | cut -d' ' -f3 | tr -d ','))${NC}"
 else
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null 2>&1
-  apt-get install -y -qq nodejs > /dev/null 2>&1
-  echo -e "${GREEN}✓ Node.js $(node -v) installed${NC}"
+  curl -fsSL https://get.docker.com | sh > /dev/null 2>&1
+  systemctl start docker
+  systemctl enable docker
+  echo -e "${GREEN}✓ Docker installed${NC}"
 fi
 
-# ── Install MongoDB ──────────────────────────────────────────────
-echo -e "${BOLD}[3/8] Installing MongoDB...${NC}"
-if command -v mongod &> /dev/null || command -v mongosh &> /dev/null; then
-  echo -e "${GREEN}✓ MongoDB already installed${NC}"
+# Install Docker Compose plugin if not present
+if docker compose version &> /dev/null; then
+  echo -e "${GREEN}✓ Docker Compose available${NC}"
 else
-  # MongoDB 7.0 for Ubuntu
-  curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
-    gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg 2>/dev/null
-  
-  # Detect Ubuntu version
-  UBUNTU_VER=$(lsb_release -cs 2>/dev/null || echo "jammy")
-  echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${UBUNTU_VER}/mongodb-org/7.0 multiverse" | \
-    tee /etc/apt/sources.list.d/mongodb-org-7.0.list > /dev/null
-  
+  echo -e "  Installing Docker Compose plugin..."
   apt-get update -qq
-  apt-get install -y -qq mongodb-org > /dev/null 2>&1 || {
-    # Fallback: try mongosh separately or use system mongo
-    echo -e "${YELLOW}⚠ MongoDB repo install failed, trying alternative...${NC}"
-    apt-get install -y -qq mongodb > /dev/null 2>&1 || true
+  apt-get install -y -qq docker-compose-plugin > /dev/null 2>&1 || {
+    # Fallback: install standalone docker-compose
+    COMPOSE_VER=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d'"' -f4)
+    curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VER}/docker-compose-$(uname -s)-$(uname -m)" \
+      -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
   }
-  
-  systemctl start mongod 2>/dev/null || systemctl start mongodb 2>/dev/null || true
-  systemctl enable mongod 2>/dev/null || systemctl enable mongodb 2>/dev/null || true
-  echo -e "${GREEN}✓ MongoDB installed and started${NC}"
+  echo -e "${GREEN}✓ Docker Compose installed${NC}"
 fi
 
-# ── Install PM2 ─────────────────────────────────────────────────
-echo -e "${BOLD}[4/8] Installing PM2...${NC}"
-if command -v pm2 &> /dev/null; then
-  echo -e "${GREEN}✓ PM2 already installed${NC}"
+# ── Step 2: Install Nginx ───────────────────────────────────────
+echo -e "${BOLD}[2/6] Installing Nginx...${NC}"
+if command -v nginx &> /dev/null; then
+  echo -e "${GREEN}✓ Nginx already installed${NC}"
 else
-  npm install -g pm2 > /dev/null 2>&1
-  echo -e "${GREEN}✓ PM2 installed${NC}"
+  apt-get update -qq
+  apt-get install -y -qq nginx > /dev/null 2>&1
+  echo -e "${GREEN}✓ Nginx installed${NC}"
 fi
 
-# ── Setup Application ───────────────────────────────────────────
-echo -e "${BOLD}[5/8] Setting up PushHive application...${NC}"
+# ── Step 3: Setup Application Files ─────────────────────────────
+echo -e "${BOLD}[3/6] Setting up PushHive...${NC}"
 mkdir -p "$INSTALL_DIR"
 
-# If we're running from the repo directory, copy files
+# Copy project files
 if [ -f "./package.json" ] && grep -q "pushhive" "./package.json" 2>/dev/null; then
+  # Copy everything including hidden files
   cp -r ./* "$INSTALL_DIR/"
-  cp -r ./.env.example "$INSTALL_DIR/" 2>/dev/null || true
+  cp ./.env.example "$INSTALL_DIR/" 2>/dev/null || true
+  cp ./.dockerignore "$INSTALL_DIR/" 2>/dev/null || true
 else
   echo -e "${RED}Please run this script from the PushHive project directory${NC}"
   exit 1
@@ -138,30 +120,32 @@ fi
 
 cd "$INSTALL_DIR"
 
-# Install Node dependencies
-npm install --production > /dev/null 2>&1
-echo -e "${GREEN}✓ Application files ready${NC}"
-
-# ── Generate VAPID Keys & Config ────────────────────────────────
-echo -e "${BOLD}[6/8] Generating VAPID keys and configuration...${NC}"
-
-# Generate VAPID keys using Node.js
-VAPID_KEYS=$(node -e "
-const webpush = require('web-push');
-const keys = webpush.generateVAPIDKeys();
-console.log(JSON.stringify(keys));
+# Generate VAPID keys using a temporary Node container
+echo -e "  Generating VAPID keys..."
+VAPID_KEYS=$(docker run --rm node:20-alpine sh -c "
+  npm install web-push --silent 2>/dev/null && \
+  node -e \"const wp=require('web-push');const k=wp.generateVAPIDKeys();console.log(JSON.stringify(k))\"
 ")
+VAPID_PUBLIC=$(echo "$VAPID_KEYS" | node -e "process.stdin.on('data',d=>{console.log(JSON.parse(d).publicKey)})" 2>/dev/null || \
+  echo "$VAPID_KEYS" | python3 -c "import sys,json;print(json.load(sys.stdin)['publicKey'])" 2>/dev/null || \
+  docker run --rm node:20-alpine sh -c "echo '${VAPID_KEYS}' | node -e \"process.stdin.on('data',d=>{console.log(JSON.parse(d).publicKey)})\"")
+VAPID_PRIVATE=$(echo "$VAPID_KEYS" | node -e "process.stdin.on('data',d=>{console.log(JSON.parse(d).privateKey)})" 2>/dev/null || \
+  echo "$VAPID_KEYS" | python3 -c "import sys,json;print(json.load(sys.stdin)['privateKey'])" 2>/dev/null || \
+  docker run --rm node:20-alpine sh -c "echo '${VAPID_KEYS}' | node -e \"process.stdin.on('data',d=>{console.log(JSON.parse(d).privateKey)})\"")
 
-VAPID_PUBLIC=$(echo "$VAPID_KEYS" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');console.log(JSON.parse(d).publicKey)")
-VAPID_PRIVATE=$(echo "$VAPID_KEYS" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8');console.log(JSON.parse(d).privateKey)")
+if [ -z "$VAPID_PUBLIC" ] || [ -z "$VAPID_PRIVATE" ]; then
+  echo -e "${RED}✗ Failed to generate VAPID keys${NC}"
+  exit 1
+fi
 
 # Generate session secret
 SESSION_SECRET=$(openssl rand -hex 32)
 
 # Create .env file
 cat > "$INSTALL_DIR/.env" << EOF
-PORT=${APP_PORT}
-MONGODB_URI=mongodb://localhost:27017/pushhive
+PORT=3000
+APP_PORT=${APP_PORT}
+MONGODB_URI=mongodb://mongo:27017/pushhive
 SESSION_SECRET=${SESSION_SECRET}
 VAPID_PUBLIC_KEY=${VAPID_PUBLIC}
 VAPID_PRIVATE_KEY=${VAPID_PRIVATE}
@@ -170,43 +154,55 @@ NODE_ENV=production
 EOF
 
 chmod 600 "$INSTALL_DIR/.env"
-echo -e "${GREEN}✓ VAPID keys generated, .env created${NC}"
+echo -e "${GREEN}✓ Configuration created with VAPID keys${NC}"
 
-# ── Seed Admin Account ──────────────────────────────────────────
-echo -e "${BOLD}[7/8] Creating admin account...${NC}"
+# ── Step 4: Build & Start Docker Containers ─────────────────────
+echo -e "${BOLD}[4/6] Building and starting containers...${NC}"
 
-node -e "
-require('dotenv').config({ path: '${INSTALL_DIR}/.env' });
-const mongoose = require('mongoose');
-const Admin = require('./models/Admin');
+cd "$INSTALL_DIR"
+docker compose down 2>/dev/null || true
+docker compose build --quiet
+docker compose up -d
 
-async function seed() {
-  await mongoose.connect(process.env.MONGODB_URI);
-  
-  // Remove existing admin with same email
-  await Admin.deleteMany({ email: '${ADMIN_EMAIL}'.toLowerCase() });
-  
-  const admin = new Admin({
-    email: '${ADMIN_EMAIL}',
-    password: '${ADMIN_PASSWORD}',
-    name: '${ADMIN_NAME}',
-    role: 'super'
-  });
-  await admin.save();
-  
-  console.log('Admin created');
-  await mongoose.disconnect();
-}
+# Wait for MongoDB to be ready
+echo -e "  Waiting for MongoDB to be ready..."
+RETRIES=15
+until docker compose exec -T mongo mongosh --eval "db.runCommand({ping:1})" > /dev/null 2>&1; do
+  RETRIES=$((RETRIES - 1))
+  if [ $RETRIES -le 0 ]; then
+    echo -e "${RED}✗ MongoDB failed to start. Checking logs:${NC}"
+    docker compose logs mongo --tail=20
+    exit 1
+  fi
+  echo -e "  Waiting... ($RETRIES attempts left)"
+  sleep 2
+done
 
-seed().catch(err => { console.error(err); process.exit(1); });
-"
+echo -e "${GREEN}✓ MongoDB is ready${NC}"
 
+# Check if app is running
+sleep 3
+if docker compose ps --format json | grep -q "running"; then
+  echo -e "${GREEN}✓ PushHive app is running${NC}"
+else
+  echo -e "${RED}✗ App container issue. Logs:${NC}"
+  docker compose logs app --tail=30
+  exit 1
+fi
+
+# ── Step 5: Seed Admin Account ──────────────────────────────────
+echo -e "${BOLD}[5/6] Creating admin account...${NC}"
+
+# Escape special characters in password for shell safety
+ESCAPED_PASSWORD=$(printf '%q' "$ADMIN_PASSWORD")
+
+docker compose exec -T app node seed.js "$ADMIN_EMAIL" "$ADMIN_PASSWORD" "$ADMIN_NAME"
 echo -e "${GREEN}✓ Admin account created${NC}"
 
-# ── Configure Nginx ─────────────────────────────────────────────
-echo -e "${BOLD}[8/8] Configuring Nginx...${NC}"
+# ── Step 6: Configure Nginx + SSL ───────────────────────────────
+echo -e "${BOLD}[6/6] Configuring Nginx reverse proxy...${NC}"
 
-cat > "/etc/nginx/sites-available/pushhive" << EOF
+cat > "/etc/nginx/sites-available/pushhive" << NGINXEOF
 server {
     listen 80;
     server_name ${DOMAIN};
@@ -224,7 +220,6 @@ server {
         proxy_read_timeout 86400;
     }
 
-    # Cache static assets
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
         proxy_pass http://127.0.0.1:${APP_PORT};
         proxy_set_header Host \$host;
@@ -234,61 +229,58 @@ server {
 
     client_max_body_size 10M;
 }
-EOF
+NGINXEOF
 
-# Enable site
 ln -sf /etc/nginx/sites-available/pushhive /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
-
-# Test and reload nginx
 nginx -t > /dev/null 2>&1
 systemctl reload nginx
-
 echo -e "${GREEN}✓ Nginx configured${NC}"
 
-# ── SSL with Let's Encrypt ──────────────────────────────────────
+# SSL with Let's Encrypt
 if [ "$ENABLE_SSL" = "y" ] || [ "$ENABLE_SSL" = "Y" ]; then
-  echo -e "${BOLD}Setting up SSL...${NC}"
-  
+  echo -e "  Setting up SSL with Let's Encrypt..."
   if ! command -v certbot &> /dev/null; then
     apt-get install -y -qq certbot python3-certbot-nginx > /dev/null 2>&1
   fi
-  
   certbot --nginx -d "$DOMAIN" --email "$ADMIN_EMAIL" --agree-tos --non-interactive --redirect 2>/dev/null && {
     echo -e "${GREEN}✓ SSL certificate installed${NC}"
   } || {
-    echo -e "${YELLOW}⚠ SSL setup failed. You can run 'certbot --nginx -d ${DOMAIN}' later.${NC}"
+    echo -e "${YELLOW}⚠ SSL setup failed. You can run manually later:${NC}"
+    echo -e "${YELLOW}  certbot --nginx -d ${DOMAIN}${NC}"
   }
 fi
 
-# ── Start Application ───────────────────────────────────────────
-cd "$INSTALL_DIR"
-pm2 stop pushhive 2>/dev/null || true
-pm2 delete pushhive 2>/dev/null || true
-pm2 start server.js --name pushhive --cwd "$INSTALL_DIR"
-pm2 save
-pm2 startup systemd -u root --hp /root 2>/dev/null || true
-
+# ── Done! ────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}${BOLD}║         PushHive Installed Successfully!     ║${NC}"
+echo -e "${GREEN}${BOLD}║       PushHive Installed Successfully!       ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${BOLD}Dashboard:${NC}  https://${DOMAIN}/dashboard"
-echo -e "${BOLD}Email:${NC}      ${ADMIN_EMAIL}"
-echo -e "${BOLD}Password:${NC}   (the one you entered)"
+echo -e "${BOLD}Dashboard:${NC}     https://${DOMAIN}/dashboard"
+echo -e "${BOLD}Email:${NC}         ${ADMIN_EMAIL}"
+echo -e "${BOLD}Password:${NC}      (the one you entered)"
+echo -e "${BOLD}Install Dir:${NC}   ${INSTALL_DIR}"
 echo ""
-echo -e "${BOLD}Install Dir:${NC} ${INSTALL_DIR}"
-echo -e "${BOLD}Logs:${NC}        pm2 logs pushhive"
-echo -e "${BOLD}Restart:${NC}     pm2 restart pushhive"
-echo -e "${BOLD}Status:${NC}      pm2 status"
+echo -e "${BOLD}Docker Commands:${NC}"
+echo -e "  cd ${INSTALL_DIR}"
+echo -e "  docker compose ps          # Status"
+echo -e "  docker compose logs -f     # Live logs"
+echo -e "  docker compose restart     # Restart"
+echo -e "  docker compose down        # Stop"
+echo -e "  docker compose up -d       # Start"
+echo -e "  docker compose up -d --build  # Rebuild & start"
+echo ""
+echo -e "${BOLD}MongoDB:${NC}"
+echo -e "  Backup:  docker compose exec mongo mongodump --out /dump"
+echo -e "  Shell:   docker compose exec mongo mongosh pushhive"
 echo ""
 echo -e "${CYAN}Next steps:${NC}"
-echo -e "  1. Login to https://${DOMAIN}/dashboard"
+echo -e "  1. Login at https://${DOMAIN}/dashboard"
 echo -e "  2. Add your first site"
 echo -e "  3. Copy the embed code to your website"
 echo -e "  4. Start collecting subscribers!"
 echo ""
-echo -e "${YELLOW}IMPORTANT: Save your VAPID keys from ${INSTALL_DIR}/.env${NC}"
-echo -e "${YELLOW}If you lose them, existing subscribers won't receive notifications.${NC}"
+echo -e "${YELLOW}IMPORTANT: Back up ${INSTALL_DIR}/.env — it contains your VAPID keys.${NC}"
+echo -e "${YELLOW}If you lose them, existing subscribers can't receive notifications.${NC}"
 echo ""

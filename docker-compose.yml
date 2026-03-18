@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # ── MongoDB ─────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: pushhive-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - pushhive-net
+    # No port exposed to host — only accessible within Docker network
+    # Uncomment below if you need external access:
+    # ports:
+    #   - "27017:27017"
+
+  # ── PushHive App ────────────────────────────────────────────────
+  app:
+    build: .
+    container_name: pushhive-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/pushhive
+    depends_on:
+      - mongo
+    networks:
+      - pushhive-net
+
+volumes:
+  mongo_data:
+    driver: local
+
+networks:
+  pushhive-net:
+    driver: bridge
