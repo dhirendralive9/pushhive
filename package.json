@@ -1,6 +1,6 @@
 {
   "name": "pushhive",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "Self-hosted open source web push notification system",
   "main": "server.js",
   "scripts": {

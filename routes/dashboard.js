@@ -942,6 +942,18 @@ router.post('/team/:id/reinvite', requireAdmin, async (req, res) => {
   }
 });
 
+// ── WordPress Plugin Download ────────────────────────────────────
+router.get('/download/wordpress-plugin', (req, res) => {
+  const pluginPath = require('path').join(__dirname, '..', 'wordpress', 'pushhive-wp-plugin.zip');
+  const fs = require('fs');
+  if (fs.existsSync(pluginPath)) {
+    res.download(pluginPath, 'pushhive-wp-plugin.zip');
+  } else {
+    req.session.error = 'Plugin file not found. Rebuild with install script.';
+    res.redirect('/dashboard/settings');
+  }
+});
+
 // ── Settings ────────────────────────────────────────────────────
 router.get('/settings', async (req, res) => {
   const admin = await Admin.findById(req.session.admin.id).lean();

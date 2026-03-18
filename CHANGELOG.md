@@ -2,6 +2,27 @@
 
 All notable changes to PushHive will be documented in this file.
 
+## [2.8.0] - 2026-03-18
+
+### Added
+- **WordPress Plugin** — one-click installation for WordPress sites
+  - Settings page under Settings → PushHive with connection testing
+  - Auto-creates `pushhive-sw.js` service worker file in WordPress root
+  - Auto-removes service worker on plugin deactivation (only if auto-generated)
+  - Injects PushHive SDK script on all frontend pages via `wp_enqueue_scripts`
+  - "Settings" quick link on Plugins page
+  - Quick links to PushHive dashboard and new campaign from WP admin
+  - Connection status indicator (tests API key against server)
+  - Service worker status indicator (checks if file exists)
+  - Compatible with all caching plugins
+  - Standard `readme.txt` for WordPress plugin directory
+  - Downloadable as ZIP from site detail page in PushHive dashboard
+  - Plugin download route at `/dashboard/download/wordpress-plugin`
+  - Installation instructions shown on site detail page with pre-filled server URL and API key
+
+### Changed
+- Site detail page now includes WordPress Plugin section with download button and step-by-step setup guide
+
 ## [2.7.0] - 2026-03-18
 
 ### Added

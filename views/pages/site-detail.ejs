@@ -173,4 +173,28 @@
   </div>
 </div>
 
+<!-- WordPress Plugin -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">WordPress Plugin</span>
+  </div>
+  <p class="text-sm text-muted" style="margin-bottom:16px;">
+    Using WordPress? Install our plugin for automatic setup — no manual file editing needed.
+  </p>
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;">
+    <a href="/dashboard/download/wordpress-plugin" class="btn btn-primary">Download Plugin (.zip)</a>
+    <span class="text-xs text-muted">v<%= typeof appVersion !== 'undefined' ? appVersion : '2.8.0' %></span>
+  </div>
+  <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;">
+    <p class="text-sm" style="color:#fff;font-weight:500;margin-bottom:8px;">Installation:</p>
+    <p class="text-sm" style="margin-bottom:4px;">1. Download the ZIP file above</p>
+    <p class="text-sm" style="margin-bottom:4px;">2. In WordPress admin → Plugins → Add New → Upload Plugin</p>
+    <p class="text-sm" style="margin-bottom:4px;">3. Upload the ZIP and activate</p>
+    <p class="text-sm" style="margin-bottom:4px;">4. Go to Settings → PushHive</p>
+    <p class="text-sm" style="margin-bottom:4px;">5. Enter: <code><%= serverUrl %></code> as Server URL</p>
+    <p class="text-sm" style="margin-bottom:4px;">6. Enter: <code><%= site.apiKey %></code> as API Key</p>
+    <p class="text-sm">7. Check "Enable PushHive" and save — done!</p>
+  </div>
+</div>
+
 <%- include('../partials/footer') %>
