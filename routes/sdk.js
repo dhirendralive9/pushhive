@@ -57,12 +57,14 @@ router.get('/pushhive-sw.js', (req, res) => {
 });
 
 function generateSDK(serverUrl) {
+  var vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
   return `
 (function() {
   'use strict';
 
   var PushHive = {
     serverUrl: '${serverUrl}',
+    vapidPublicKey: '${vapidPublicKey}',
     apiKey: null,
     siteConfig: null,
 
@@ -117,14 +119,29 @@ function generateSDK(serverUrl) {
     },
 
     fetchConfig: function(callback) {
-      var xhr = new XMLHttpRequest();
-      xhr.open('GET', this.serverUrl + '/api/config?apiKey=' + this.apiKey);
-      xhr.onload = function() {
-        if (xhr.status === 200) {
-          callback(JSON.parse(xhr.responseText));
-        }
-      };
-      xhr.send();
+      fetch(this.serverUrl + '/api/config?apiKey=' + this.apiKey, {
+        method: 'GET',
+        mode: 'cors',
+        credentials: 'omit'
+      })
+      .then(function(response) {
+        if (response.ok) return response.json();
+        throw new Error('Config fetch failed: HTTP ' + response.status);
+      })
+      .then(function(data) {
+        console.log('[PushHive] Config loaded successfully');
+        callback(data);
+      })
+      .catch(function(err) {
+        console.warn('[PushHive] Config fetch failed:', err.message);
+        console.warn('[PushHive] Using embedded config (browser may be blocking cross-origin requests)');
+        // Fallback: use the VAPID key embedded at SDK generation time
+        callback({
+          promptConfig: { style: 'native', delay: 1 },
+          vapidPublicKey: PushHive.vapidPublicKey,
+          inAppBrowserRedirect: false
+        });
+      });
     },
 
     registerServiceWorker: function() {
@@ -281,9 +298,9 @@ function generateSDK(serverUrl) {
 
     subscribe: function(registration) {
       console.log('[PushHive] Creating push subscription...');
-      var vapidKey = PushHive.siteConfig.vapidPublicKey;
+      var vapidKey = (PushHive.siteConfig && PushHive.siteConfig.vapidPublicKey) || PushHive.vapidPublicKey;
       if (!vapidKey) {
-        console.error('[PushHive] No VAPID public key from server. Check your .env VAPID_PUBLIC_KEY');
+        console.error('[PushHive] No VAPID public key available. Check server .env VAPID_PUBLIC_KEY');
         return;
       }
       console.log('[PushHive] VAPID key length:', vapidKey.length, '| starts with:', vapidKey.substring(0, 10) + '...');
@@ -302,9 +319,10 @@ function generateSDK(serverUrl) {
         console.error('[PushHive] Subscribe failed:', err.name + ':', err.message);
         if (err.name === 'AbortError') {
           console.error('[PushHive] This usually means:');
-          console.error('[PushHive]   1. VAPID key mismatch - regenerate keys and update .env');
-          console.error('[PushHive]   2. Browser blocking push (Brave shields, Firefox ETP)');
+          console.error('[PushHive]   1. Browser Tracking Prevention is blocking push (Edge, Brave)');
+          console.error('[PushHive]   2. VAPID key mismatch - regenerate keys and update .env');
           console.error('[PushHive]   3. Existing subscription with different VAPID key - clear site data');
+          console.error('[PushHive]   Edge users: Settings > Privacy > Tracking Prevention > set to Basic, or add site to exceptions');
         }
       });
     },
