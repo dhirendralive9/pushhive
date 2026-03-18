@@ -4,18 +4,34 @@
   <h1>REST API Documentation</h1>
 </div>
 
+<!-- Site Selector -->
 <div class="card">
   <div class="card-header">
     <span class="card-title">Authentication</span>
   </div>
+
+  <% if (sites.length === 0) { %>
+    <p class="text-muted text-sm">No sites yet. <a href="/dashboard/sites" style="color:var(--primary-hover)">Add a site</a> first to get an API key.</p>
+  <% } else { %>
+  <div class="form-group">
+    <label class="form-label">Select a site to populate API key in examples below</label>
+    <select id="site-selector" class="form-select" style="max-width:400px;">
+      <% sites.forEach(function(s, i) { %>
+      <option value="<%= s.apiKey %>" <%= i === 0 ? 'selected' : '' %>><%= s.name %> — <%= s.domain %></option>
+      <% }) %>
+    </select>
+  </div>
+
   <p class="text-sm" style="margin-bottom:12px;">
     All API requests require your site API key. Pass it as a header:
   </p>
   <div class="code-block">
-    <pre>X-API-Key: ph_your_api_key_here</pre>
+    <button class="copy-btn" onclick="copyToClipboard('X-API-Key: '+document.getElementById('site-selector').value, this)">Copy</button>
+    <pre>X-API-Key: <span class="api-key-display"><%= sites[0].apiKey %></span></pre>
   </div>
-  <p class="text-sm text-muted mt-8">Or as a query parameter: <code>?apiKey=ph_your_api_key_here</code></p>
-  <p class="text-sm text-muted mt-8">Base URL: <code><%= typeof serverUrl !== 'undefined' ? serverUrl : '' %>/api/v1</code></p>
+  <p class="text-sm text-muted mt-8">Or as a query parameter: <code>?apiKey=<span class="api-key-display"><%= sites[0].apiKey %></span></code></p>
+  <% } %>
+  <p class="text-sm text-muted mt-8">Base URL: <code><%= serverUrl %>/api/v1</code></p>
 </div>
 
 <!-- Quick Send -->
@@ -27,9 +43,9 @@
   <p class="text-sm text-muted mb-16">Send a notification immediately to all or targeted subscribers. Creates a campaign and queues it automatically.</p>
   <div class="code-block">
     <button class="copy-btn" onclick="copyToClipboard(document.getElementById('api-send').textContent, this)">Copy</button>
-    <pre id="api-send">curl -X POST <%= typeof serverUrl !== 'undefined' ? serverUrl : 'https://your-server.com' %>/api/v1/send \
+    <pre id="api-send">curl -X POST <%= serverUrl %>/api/v1/send \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_API_KEY" \
+  -H "X-API-Key: <span class="api-key-display"><%= sites.length > 0 ? sites[0].apiKey : 'YOUR_API_KEY' %></span>" \
   -d '{
     "title": "New Blog Post!",
     "body": "Check out our latest article on web push notifications",
@@ -179,7 +195,7 @@
   <p class="text-sm text-muted mt-8">Returns subscriber growth, event breakdown, browser/device distribution for the specified period.</p>
 </div>
 
-<!-- SDK Subscribe/Unsubscribe -->
+<!-- SDK Endpoints -->
 <div class="card">
   <div class="card-header">
     <span class="card-title">SDK Endpoints (used by embedded JS)</span>
@@ -194,5 +210,15 @@
     </tbody>
   </table>
 </div>
+
+<script>
+// Update all API key displays when site selector changes
+document.getElementById('site-selector').addEventListener('change', function() {
+  var key = this.value;
+  document.querySelectorAll('.api-key-display').forEach(function(el) {
+    el.textContent = key;
+  });
+});
+</script>
 
 <%- include('../partials/footer') %>

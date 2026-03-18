@@ -422,7 +422,8 @@ router.get('/analytics', async (req, res) => {
 // ── API Documentation ───────────────────────────────────────────
 router.get('/api-docs', async (req, res) => {
   const serverUrl = `${req.protocol}://${req.get('host')}`;
-  res.render('pages/api-docs', { serverUrl });
+  const sites = await Site.find({ active: true }).select('name domain apiKey').lean();
+  res.render('pages/api-docs', { serverUrl, sites });
 });
 
 // ── Settings ────────────────────────────────────────────────────
