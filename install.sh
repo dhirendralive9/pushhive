@@ -50,6 +50,13 @@ if [ ${#ADMIN_PASSWORD} -lt 6 ]; then
   exit 1
 fi
 
+read -sp "Confirm password: " ADMIN_PASSWORD_CONFIRM
+echo ""
+if [ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD_CONFIRM" ]; then
+  echo -e "${RED}Passwords do not match${NC}"
+  exit 1
+fi
+
 read -p "Admin display name [Admin]: " ADMIN_NAME
 ADMIN_NAME=${ADMIN_NAME:-Admin}
 
@@ -71,7 +78,13 @@ echo -e "${BOLD}[1/6] Installing Docker...${NC}"
 if command -v docker &> /dev/null; then
   echo -e "${GREEN}✓ Docker already installed ($(docker --version | cut -d' ' -f3 | tr -d ','))${NC}"
 else
-  curl -fsSL https://get.docker.com | sh > /dev/null 2>&1
+  echo -e "  Downloading and installing Docker (this may take a minute)..."
+  curl -fsSL https://get.docker.com | sh
+  if [ $? -ne 0 ]; then
+    echo -e "${RED}✗ Docker installation failed. Please install Docker manually:${NC}"
+    echo -e "${RED}  https://docs.docker.com/engine/install/${NC}"
+    exit 1
+  fi
   systemctl start docker
   systemctl enable docker
   echo -e "${GREEN}✓ Docker installed${NC}"
@@ -83,14 +96,32 @@ if docker compose version &> /dev/null; then
 else
   echo -e "  Installing Docker Compose plugin..."
   apt-get update -qq
-  apt-get install -y -qq docker-compose-plugin > /dev/null 2>&1 || {
+  apt-get install -y docker-compose-plugin 2>/dev/null || {
     # Fallback: install standalone docker-compose
+    echo -e "  Trying standalone Docker Compose..."
+    ARCH=$(uname -m)
+    case "$ARCH" in
+      aarch64) ARCH="aarch64" ;;
+      x86_64) ARCH="x86_64" ;;
+    esac
     COMPOSE_VER=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep tag_name | cut -d'"' -f4)
-    curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VER}/docker-compose-$(uname -s)-$(uname -m)" \
-      -o /usr/local/bin/docker-compose
-    chmod +x /usr/local/bin/docker-compose
+    if [ -n "$COMPOSE_VER" ]; then
+      curl -fsSL "https://github.com/docker/compose/releases/download/${COMPOSE_VER}/docker-compose-$(uname -s)-${ARCH}" \
+        -o /usr/local/bin/docker-compose
+      chmod +x /usr/local/bin/docker-compose
+      # Create alias so 'docker compose' works
+      mkdir -p /usr/local/lib/docker/cli-plugins
+      ln -sf /usr/local/bin/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
+    fi
   }
-  echo -e "${GREEN}✓ Docker Compose installed${NC}"
+  
+  if docker compose version &> /dev/null; then
+    echo -e "${GREEN}✓ Docker Compose installed${NC}"
+  else
+    echo -e "${RED}✗ Docker Compose installation failed. Please install manually:${NC}"
+    echo -e "${RED}  https://docs.docker.com/compose/install/${NC}"
+    exit 1
+  fi
 fi
 
 # ── Step 2: Install Nginx ───────────────────────────────────────
@@ -99,7 +130,11 @@ if command -v nginx &> /dev/null; then
   echo -e "${GREEN}✓ Nginx already installed${NC}"
 else
   apt-get update -qq
-  apt-get install -y -qq nginx > /dev/null 2>&1
+  apt-get install -y nginx
+  if [ $? -ne 0 ]; then
+    echo -e "${RED}✗ Nginx installation failed${NC}"
+    exit 1
+  fi
   echo -e "${GREEN}✓ Nginx installed${NC}"
 fi
 
@@ -121,22 +156,29 @@ fi
 cd "$INSTALL_DIR"
 
 # Generate VAPID keys using a temporary Node container
+echo -e "  Pulling Node.js image (first time may take a minute)..."
+docker pull node:20-alpine
+
 echo -e "  Generating VAPID keys..."
-VAPID_KEYS=$(docker run --rm node:20-alpine sh -c "
+VAPID_OUTPUT=$(docker run --rm node:20-alpine sh -c "
   npm install web-push --silent 2>/dev/null && \
-  node -e \"const wp=require('web-push');const k=wp.generateVAPIDKeys();console.log(JSON.stringify(k))\"
+  node -e \"
+    const wp=require('web-push');
+    const k=wp.generateVAPIDKeys();
+    console.log('PUBLIC:'+k.publicKey);
+    console.log('PRIVATE:'+k.privateKey);
+  \"
 ")
-VAPID_PUBLIC=$(echo "$VAPID_KEYS" | node -e "process.stdin.on('data',d=>{console.log(JSON.parse(d).publicKey)})" 2>/dev/null || \
-  echo "$VAPID_KEYS" | python3 -c "import sys,json;print(json.load(sys.stdin)['publicKey'])" 2>/dev/null || \
-  docker run --rm node:20-alpine sh -c "echo '${VAPID_KEYS}' | node -e \"process.stdin.on('data',d=>{console.log(JSON.parse(d).publicKey)})\"")
-VAPID_PRIVATE=$(echo "$VAPID_KEYS" | node -e "process.stdin.on('data',d=>{console.log(JSON.parse(d).privateKey)})" 2>/dev/null || \
-  echo "$VAPID_KEYS" | python3 -c "import sys,json;print(json.load(sys.stdin)['privateKey'])" 2>/dev/null || \
-  docker run --rm node:20-alpine sh -c "echo '${VAPID_KEYS}' | node -e \"process.stdin.on('data',d=>{console.log(JSON.parse(d).privateKey)})\"")
+
+VAPID_PUBLIC=$(echo "$VAPID_OUTPUT" | grep '^PUBLIC:' | cut -d':' -f2-)
+VAPID_PRIVATE=$(echo "$VAPID_OUTPUT" | grep '^PRIVATE:' | cut -d':' -f2-)
 
 if [ -z "$VAPID_PUBLIC" ] || [ -z "$VAPID_PRIVATE" ]; then
-  echo -e "${RED}✗ Failed to generate VAPID keys${NC}"
+  echo -e "${RED}✗ Failed to generate VAPID keys. Output was:${NC}"
+  echo "$VAPID_OUTPUT"
   exit 1
 fi
+echo -e "${GREEN}✓ VAPID keys generated${NC}"
 
 # Generate session secret
 SESSION_SECRET=$(openssl rand -hex 32)
@@ -161,12 +203,25 @@ echo -e "${BOLD}[4/6] Building and starting containers...${NC}"
 
 cd "$INSTALL_DIR"
 docker compose down 2>/dev/null || true
-docker compose build --quiet
+
+echo -e "  Building PushHive image..."
+docker compose build
+if [ $? -ne 0 ]; then
+  echo -e "${RED}✗ Docker build failed${NC}"
+  exit 1
+fi
+
+echo -e "  Starting containers..."
 docker compose up -d
+if [ $? -ne 0 ]; then
+  echo -e "${RED}✗ Failed to start containers. Logs:${NC}"
+  docker compose logs --tail=30
+  exit 1
+fi
 
 # Wait for MongoDB to be ready
 echo -e "  Waiting for MongoDB to be ready..."
-RETRIES=15
+RETRIES=20
 until docker compose exec -T mongo mongosh --eval "db.runCommand({ping:1})" > /dev/null 2>&1; do
   RETRIES=$((RETRIES - 1))
   if [ $RETRIES -le 0 ]; then
@@ -175,14 +230,14 @@ until docker compose exec -T mongo mongosh --eval "db.runCommand({ping:1})" > /d
     exit 1
   fi
   echo -e "  Waiting... ($RETRIES attempts left)"
-  sleep 2
+  sleep 3
 done
 
 echo -e "${GREEN}✓ MongoDB is ready${NC}"
 
 # Check if app is running
 sleep 3
-if docker compose ps --format json | grep -q "running"; then
+if docker compose ps | grep -q "running\|Up"; then
   echo -e "${GREEN}✓ PushHive app is running${NC}"
 else
   echo -e "${RED}✗ App container issue. Logs:${NC}"
@@ -257,9 +312,14 @@ echo -e "${GREEN}${BOLD}╔═════════════════�
 echo -e "${GREEN}${BOLD}║       PushHive Installed Successfully!       ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "${BOLD}Dashboard:${NC}     https://${DOMAIN}/dashboard"
-echo -e "${BOLD}Email:${NC}         ${ADMIN_EMAIL}"
-echo -e "${BOLD}Password:${NC}      (the one you entered)"
+echo -e "${BOLD}┌─ Login Credentials ──────────────────────────┐${NC}"
+echo -e "${BOLD}│ Dashboard:${NC}  https://${DOMAIN}/dashboard"
+echo -e "${BOLD}│ Email:${NC}      ${ADMIN_EMAIL}"
+echo -e "${BOLD}│ Password:${NC}   ${ADMIN_PASSWORD}"
+echo -e "${BOLD}└──────────────────────────────────────────────┘${NC}"
+echo ""
+echo -e "${RED}${BOLD}⚠  SAVE THESE CREDENTIALS — this is the only time the password is shown!${NC}"
+echo ""
 echo -e "${BOLD}Install Dir:${NC}   ${INSTALL_DIR}"
 echo ""
 echo -e "${BOLD}Docker Commands:${NC}"
