@@ -1,23 +1,32 @@
 const express = require('express');
 const router = express.Router();
-const { sdkCors } = require('../middleware/auth');
 
-router.use(sdkCors);
+// Custom CORS for SDK — must allow cross-origin script loading
+router.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
 
 // ── Serve PushHive JS SDK ───────────────────────────────────────
 router.get('/pushhive.js', (req, res) => {
   const serverUrl = `${req.protocol}://${req.get('host')}`;
-  res.set('Content-Type', 'application/javascript');
+  res.set('Content-Type', 'application/javascript; charset=utf-8');
   res.set('Cache-Control', 'public, max-age=3600');
+  res.set('Cross-Origin-Resource-Policy', 'cross-origin');
   res.send(generateSDK(serverUrl));
 });
 
 // ── Serve Service Worker ────────────────────────────────────────
 router.get('/pushhive-sw.js', (req, res) => {
   const serverUrl = `${req.protocol}://${req.get('host')}`;
-  res.set('Content-Type', 'application/javascript');
+  res.set('Content-Type', 'application/javascript; charset=utf-8');
   res.set('Service-Worker-Allowed', '/');
   res.set('Cache-Control', 'no-cache');
+  res.set('Cross-Origin-Resource-Policy', 'cross-origin');
   res.send(generateServiceWorker(serverUrl));
 });
 
@@ -35,7 +44,10 @@ function generateSDK(serverUrl) {
       this.apiKey = config.apiKey;
       if (!this.apiKey) { console.error('[PushHive] API key required'); return; }
 
-      // Check for in-app browser first
+      var ua = navigator.userAgent || '';
+      var isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+
+      // 1. Check for social media in-app browsers (FB, IG, TikTok etc.)
       if (this.isInAppBrowser()) {
         this.fetchConfig(function(cfg) {
           if (cfg && cfg.inAppBrowserRedirect) {
@@ -45,12 +57,33 @@ function generateSDK(serverUrl) {
         return;
       }
 
-      // Check service worker & push support
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        console.warn('[PushHive] Push notifications not supported');
+      // 2. iOS non-Safari browsers (Chrome iOS, Firefox iOS, Edge iOS)
+      //    These use WKWebView — no service worker support, can't subscribe
+      //    Don't redirect — just show a "use Safari" message
+      if (isIOS && (/(CriOS|FxiOS|EdgiOS|OPiOS)/i.test(ua))) {
+        console.warn('[PushHive] iOS non-Safari browser detected. Push requires Safari.');
+        this.fetchConfig(function(cfg) {
+          PushHive.siteConfig = cfg;
+          setTimeout(function() { PushHive.showIOSSafariPrompt(); }, (cfg && cfg.promptConfig ? cfg.promptConfig.delay : 3) * 1000);
+        });
         return;
       }
 
+      // 3. Check service worker & push support
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        // iOS Safari not in standalone/PWA mode
+        if (isIOS) {
+          this.fetchConfig(function(cfg) {
+            PushHive.siteConfig = cfg;
+            setTimeout(function() { PushHive.showIOSPrompt(); }, (cfg && cfg.promptConfig ? cfg.promptConfig.delay : 3) * 1000);
+          });
+          return;
+        }
+        console.warn('[PushHive] Push notifications not supported in this browser');
+        return;
+      }
+
+      // 4. Normal flow — service workers supported
       this.fetchConfig(function(cfg) {
         PushHive.siteConfig = cfg;
         PushHive.registerServiceWorker();
@@ -157,6 +190,33 @@ function generateSDK(serverUrl) {
         '</div>';
       document.body.appendChild(overlay);
       document.getElementById('pushhive-ios-close').onclick = function() { overlay.remove(); };
+    },
+
+    showIOSSafariPrompt: function() {
+      var overlay = document.createElement('div');
+      overlay.id = 'pushhive-safari-prompt';
+      overlay.innerHTML =
+        '<div style="position:fixed;bottom:0;left:0;right:0;background:#fff;color:#333;padding:24px;box-shadow:0 -4px 24px rgba(0,0,0,0.15);z-index:999999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;border-radius:16px 16px 0 0;">' +
+        '<div style="font-weight:600;font-size:16px;margin-bottom:8px;">Open in Safari</div>' +
+        '<div style="font-size:14px;color:#666;margin-bottom:16px;">Push notifications on iOS require Safari. You\'re currently using a different browser.</div>' +
+        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:12px;background:#f5f5f5;border-radius:8px;">' +
+        '<span style="font-size:24px;">1.</span><span>Copy this page URL</span></div>' +
+        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px;background:#f5f5f5;border-radius:8px;">' +
+        '<span style="font-size:24px;">2.</span><span>Open <strong>Safari</strong> and paste the URL</span></div>' +
+        '<div style="display:flex;gap:8px;">' +
+        '<button id="pushhive-copy-url" style="flex:1;padding:12px;border:none;background:#4F46E5;color:#fff;border-radius:8px;cursor:pointer;font-size:15px;font-weight:500;">Copy URL</button>' +
+        '<button id="pushhive-safari-close" style="padding:12px 20px;border:1px solid #ddd;background:#fff;color:#666;border-radius:8px;cursor:pointer;font-size:15px;">Close</button>' +
+        '</div></div>';
+      document.body.appendChild(overlay);
+      document.getElementById('pushhive-safari-close').onclick = function() { overlay.remove(); };
+      document.getElementById('pushhive-copy-url').onclick = function() {
+        navigator.clipboard.writeText(window.location.href).then(function() {
+          document.getElementById('pushhive-copy-url').textContent = 'Copied!';
+          setTimeout(function() { document.getElementById('pushhive-copy-url').textContent = 'Copy URL'; }, 2000);
+        }).catch(function() {
+          prompt('Copy this URL and open it in Safari:', window.location.href);
+        });
+      };
     },
 
     requestPermission: function(registration) {

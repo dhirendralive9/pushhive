@@ -21,7 +21,8 @@ const helmetMiddleware = helmet({
       connectSrc: ["'self'"]
     }
   },
-  crossOriginEmbedderPolicy: false // Allow CDN resources
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: 'cross-origin' }  // Allow SDK to be loaded cross-origin
 });
 
 // ── Login Rate Limiter — Brute Force Protection ─────────────────
