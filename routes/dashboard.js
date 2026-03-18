@@ -10,6 +10,7 @@ const Admin = require('../models/Admin');
 const Webhook = require('../models/Webhook');
 const WebhookLog = require('../models/WebhookLog');
 const RssFeed = require('../models/RssFeed');
+const Segment = require('../models/Segment');
 const webpush = require('web-push');
 
 // Apply auth middleware to all dashboard routes
@@ -168,13 +169,14 @@ router.get('/campaigns', async (req, res) => {
 
 router.get('/campaigns/new', async (req, res) => {
   const sites = await Site.find({ active: true }).lean();
-  res.render('pages/campaign-new', { sites });
+  const segments = await Segment.find({ active: true }).populate('siteId', 'name').lean();
+  res.render('pages/campaign-new', { sites, segments });
 });
 
 router.post('/campaigns', async (req, res) => {
   try {
     const { siteId, title, body, url, icon, image, utmSource, utmMedium,
-      utmCampaign, utmTerm, utmContent, targetAll, targetTags,
+      utmCampaign, utmTerm, utmContent, targetAll, targetTags, targetSegment,
       action1Title, action1Url, action2Title, action2Url, scheduledAt,
       abEnabled, abTitleB, abBodyB, abIconB,
       abTestPercentage, abWaitHours, abWinnerMetric } = req.body;
@@ -188,8 +190,9 @@ router.post('/campaigns', async (req, res) => {
         term: utmTerm || '',
         content: utmContent || ''
       },
-      targetAll: targetAll !== 'false',
+      targetAll: targetAll === 'true' || targetAll === true,
       targetTags: targetTags ? targetTags.split(',').map(t => t.trim()) : [],
+      targetSegment: (targetAll === 'segment' && targetSegment) ? targetSegment : undefined,
       actions: [
         ...(action1Title ? [{ title: action1Title, url: action1Url }] : []),
         ...(action2Title ? [{ title: action2Title, url: action2Url }] : [])
@@ -391,6 +394,103 @@ router.get('/queue', async (req, res) => {
   } catch (err) {
     console.error('Queue status error:', err);
     res.render('pages/queue', { queueStats: {}, activeCampaigns: [], queueError: err.message });
+  }
+});
+
+// ── Segments ────────────────────────────────────────────────────
+router.get('/segments', async (req, res) => {
+  const sites = await Site.find().lean();
+  const segments = await Segment.find().sort({ createdAt: -1 }).populate('siteId', 'name').lean();
+  res.render('pages/segments', { segments, sites });
+});
+
+router.post('/segments', async (req, res) => {
+  try {
+    const { siteId, name, description, logic, rules } = req.body;
+
+    // Parse rules from form — comes as JSON string from the visual builder
+    let parsedGroups = [];
+    try {
+      const rulesData = typeof rules === 'string' ? JSON.parse(rules) : rules;
+      if (Array.isArray(rulesData)) {
+        parsedGroups = rulesData;
+      }
+    } catch (e) {
+      req.session.error = 'Invalid segment rules';
+      return res.redirect('/dashboard/segments');
+    }
+
+    const segment = new Segment({
+      siteId, name, description: description || '',
+      logic: logic || 'AND',
+      groups: parsedGroups
+    });
+
+    // Calculate initial count
+    const query = segment.buildQuery();
+    segment.estimatedCount = await Subscriber.countDocuments(query);
+    segment.lastCountedAt = new Date();
+
+    await segment.save();
+    req.session.success = `Segment "${name}" created — ${segment.estimatedCount} subscribers match`;
+    res.redirect('/dashboard/segments');
+  } catch (err) {
+    req.session.error = 'Failed to create segment: ' + err.message;
+    res.redirect('/dashboard/segments');
+  }
+});
+
+router.get('/segments/:id', async (req, res) => {
+  try {
+    const segment = await Segment.findById(req.params.id).populate('siteId', 'name domain').lean();
+    if (!segment) { req.session.error = 'Segment not found'; return res.redirect('/dashboard/segments'); }
+
+    // Recount
+    const segModel = await Segment.findById(req.params.id);
+    const query = segModel.buildQuery();
+    const count = await Subscriber.countDocuments(query);
+    segModel.estimatedCount = count;
+    segModel.lastCountedAt = new Date();
+    await segModel.save();
+
+    // Sample subscribers
+    const sampleSubs = await Subscriber.find(query).limit(10)
+      .select('browser os device tags createdAt lastActive totalClicks').lean();
+
+    res.render('pages/segment-detail', { segment: { ...segment, estimatedCount: count }, sampleSubs });
+  } catch (err) {
+    req.session.error = 'Failed to load segment';
+    res.redirect('/dashboard/segments');
+  }
+});
+
+// API: count subscribers matching segment (for live preview)
+router.post('/segments/count', async (req, res) => {
+  try {
+    const { siteId, logic, rules } = req.body;
+    const parsedGroups = typeof rules === 'string' ? JSON.parse(rules) : rules;
+
+    const tempSegment = new Segment({
+      siteId, logic: logic || 'AND',
+      groups: Array.isArray(parsedGroups) ? parsedGroups : []
+    });
+
+    const query = tempSegment.buildQuery();
+    const count = await Subscriber.countDocuments(query);
+    res.json({ success: true, count });
+  } catch (err) {
+    res.json({ success: false, count: 0, error: err.message });
+  }
+});
+
+router.post('/segments/:id/delete', async (req, res) => {
+  try {
+    await Segment.findByIdAndDelete(req.params.id);
+    req.session.success = 'Segment deleted';
+    res.redirect('/dashboard/segments');
+  } catch (err) {
+    req.session.error = 'Failed to delete segment';
+    res.redirect('/dashboard/segments');
   }
 });
 

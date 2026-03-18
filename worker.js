@@ -36,15 +36,26 @@ const campaignWorker = new Worker(QUEUE_NAMES.CAMPAIGN_SEND, async (job) => {
   if (!campaign) throw new Error(`Campaign ${campaignId} not found`);
 
   // Build subscriber filter
-  const filter = { siteId: campaign.siteId, active: true };
-  if (!campaign.targetAll && campaign.targetTags.length > 0) {
-    filter.tags = { $in: campaign.targetTags };
-  }
-  if (campaign.targetBrowsers && campaign.targetBrowsers.length > 0) {
-    filter.browser = { $in: campaign.targetBrowsers };
-  }
-  if (campaign.targetDevices && campaign.targetDevices.length > 0) {
-    filter.device = { $in: campaign.targetDevices };
+  let filter = { siteId: campaign.siteId, active: true };
+
+  // If targeting a segment, use the segment's query
+  if (campaign.targetSegment) {
+    const Segment = require('./models/Segment');
+    const segment = await Segment.findById(campaign.targetSegment);
+    if (segment) {
+      filter = segment.buildQuery();
+      console.log(`[${WORKER_ID}] Using segment "${segment.name}" for targeting`);
+    }
+  } else if (!campaign.targetAll) {
+    if (campaign.targetTags && campaign.targetTags.length > 0) {
+      filter.tags = { $in: campaign.targetTags };
+    }
+    if (campaign.targetBrowsers && campaign.targetBrowsers.length > 0) {
+      filter.browser = { $in: campaign.targetBrowsers };
+    }
+    if (campaign.targetDevices && campaign.targetDevices.length > 0) {
+      filter.device = { $in: campaign.targetDevices };
+    }
   }
 
   const totalSubs = await Subscriber.countDocuments(filter);

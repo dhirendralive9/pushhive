@@ -1,0 +1,277 @@
+<%- include('../partials/header', { pageTitle: 'Segments', activePage: 'segments' }) %>
+
+<div class="page-header">
+  <h1>Segments</h1>
+</div>
+
+<!-- Create Segment -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Create Segment</span>
+  </div>
+  <form method="POST" action="/dashboard/segments" id="segmentForm">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Segment Name</label>
+        <input type="text" name="name" class="form-input" placeholder="High-value mobile users" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Site</label>
+        <select name="siteId" id="segSiteId" class="form-select" required>
+          <% sites.forEach(function(s) { %>
+          <option value="<%= s._id %>"><%= s.name %></option>
+          <% }) %>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description (optional)</label>
+      <input type="text" name="description" class="form-input" placeholder="Subscribers who clicked in the last 30 days on mobile">
+    </div>
+
+    <!-- Rule Builder -->
+    <div style="margin:20px 0 12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:15px;font-weight:600;color:#fff;">Rules</span>
+        <div class="flex gap-8">
+          <select id="topLogic" name="logic" class="form-select" style="width:80px;padding:6px 8px;font-size:12px;">
+            <option value="AND">AND</option>
+            <option value="OR">OR</option>
+          </select>
+          <span class="text-muted text-xs">between groups</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="ruleGroups"></div>
+
+    <div class="flex gap-8 mt-16">
+      <button type="button" class="btn btn-outline btn-sm" onclick="addGroup()">+ Add Rule Group</button>
+      <button type="button" class="btn btn-outline btn-sm" onclick="previewCount()" id="previewBtn">Preview Count</button>
+      <span id="previewResult" class="text-sm" style="line-height:32px;"></span>
+    </div>
+
+    <input type="hidden" name="rules" id="rulesJson">
+
+    <div class="mt-24">
+      <button type="submit" class="btn btn-primary">Create Segment</button>
+    </div>
+  </form>
+</div>
+
+<!-- Segments List -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Your Segments (<%= segments.length %>)</span>
+  </div>
+  <% if (segments.length === 0) { %>
+    <p class="text-muted text-sm">No segments yet. Create one above to target specific audiences in your campaigns.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Site</th><th>Rules</th><th>Subscribers</th><th>Last Counted</th><th>Actions</th></tr></thead>
+      <tbody>
+        <% segments.forEach(function(seg) { %>
+        <tr>
+          <td>
+            <a href="/dashboard/segments/<%= seg._id %>" style="color:var(--primary-hover);text-decoration:none;font-weight:500;"><%= seg.name %></a>
+            <% if (seg.description) { %>
+            <div class="text-muted text-xs truncate" style="max-width:200px;"><%= seg.description %></div>
+            <% } %>
+          </td>
+          <td class="text-muted"><%= seg.siteId ? seg.siteId.name : '—' %></td>
+          <td class="text-muted text-sm"><%= seg.groups ? seg.groups.reduce(function(t, g) { return t + (g.rules ? g.rules.length : 0); }, 0) : 0 %> rules</td>
+          <td><strong><%= (seg.estimatedCount || 0).toLocaleString() %></strong></td>
+          <td class="text-muted text-xs"><%= seg.lastCountedAt ? new Date(seg.lastCountedAt).toLocaleString() : 'Never' %></td>
+          <td>
+            <div class="flex gap-8">
+              <a href="/dashboard/segments/<%= seg._id %>" class="btn btn-outline btn-sm">View</a>
+              <form method="POST" action="/dashboard/segments/<%= seg._id %>/delete" style="display:inline;">
+                <button type="submit" class="btn btn-danger btn-sm" data-confirm="Delete this segment?">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<style>
+.rule-group{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px;}
+.rule-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+.rule-row select,.rule-row input{font-size:12px;padding:6px 10px;background:var(--bg-card);border:1px solid var(--border);border-radius:4px;color:var(--text);}
+.rule-row select{min-width:120px;}
+.rule-row input{min-width:140px;flex:1;}
+.rule-remove{background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:4px 8px;}
+.group-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.group-logic{font-size:11px;padding:3px 8px;background:var(--primary-bg);color:var(--primary-hover);border-radius:4px;font-weight:600;}
+</style>
+
+<script>
+var FIELDS = [
+  { value: 'browser', label: 'Browser', type: 'string' },
+  { value: 'os', label: 'OS', type: 'string' },
+  { value: 'device', label: 'Device', type: 'enum', options: ['desktop','mobile','tablet'] },
+  { value: 'tags', label: 'Tags', type: 'array' },
+  { value: 'country', label: 'Country', type: 'string' },
+  { value: 'city', label: 'City', type: 'string' },
+  { value: 'createdAt', label: 'Subscribed date', type: 'date' },
+  { value: 'lastActive', label: 'Last active', type: 'date' },
+  { value: 'totalClicks', label: 'Total clicks', type: 'number' },
+  { value: 'totalReceived', label: 'Total received', type: 'number' },
+  { value: 'referrer', label: 'Referrer', type: 'string' },
+  { value: 'landingPage', label: 'Landing page', type: 'string' }
+];
+
+var OPS = {
+  string: [
+    { value: 'equals', label: 'equals' },
+    { value: 'not_equals', label: 'not equals' },
+    { value: 'contains', label: 'contains' },
+    { value: 'not_contains', label: 'not contains' }
+  ],
+  number: [
+    { value: 'equals', label: 'equals' },
+    { value: 'greater_than', label: 'greater than' },
+    { value: 'less_than', label: 'less than' }
+  ],
+  date: [
+    { value: 'after', label: 'after' },
+    { value: 'before', label: 'before' },
+    { value: 'in_last_days', label: 'in last N days' },
+    { value: 'not_in_last_days', label: 'not in last N days' }
+  ],
+  enum: [
+    { value: 'equals', label: 'is' },
+    { value: 'not_equals', label: 'is not' }
+  ],
+  array: [
+    { value: 'in', label: 'includes any of' },
+    { value: 'not_in', label: 'excludes' },
+    { value: 'contains', label: 'contains' }
+  ]
+};
+
+var groupCount = 0;
+
+function addGroup() {
+  groupCount++;
+  var gid = 'g' + groupCount;
+  var html = '<div class="rule-group" id="' + gid + '">';
+  html += '<div class="group-header"><span class="group-logic">Group ' + groupCount + ' (AND)</span>';
+  html += '<div class="flex gap-8"><button type="button" class="btn btn-outline btn-sm" onclick="addRule(\'' + gid + '\')">+ Rule</button>';
+  html += '<button type="button" class="rule-remove" onclick="removeGroup(\'' + gid + '\')" title="Remove group">&times;</button></div></div>';
+  html += '<div id="' + gid + '-rules"></div>';
+  html += '</div>';
+  document.getElementById('ruleGroups').insertAdjacentHTML('beforeend', html);
+  addRule(gid);
+}
+
+function addRule(gid) {
+  var container = document.getElementById(gid + '-rules');
+  var rid = gid + '_r' + (container.children.length + 1);
+  var html = '<div class="rule-row" id="' + rid + '">';
+  html += '<select onchange="onFieldChange(this,\'' + rid + '\')">';
+  FIELDS.forEach(function(f) { html += '<option value="' + f.value + '">' + f.label + '</option>'; });
+  html += '</select>';
+  html += '<select id="' + rid + '_op">';
+  OPS.string.forEach(function(o) { html += '<option value="' + o.value + '">' + o.label + '</option>'; });
+  html += '</select>';
+  html += '<input type="text" id="' + rid + '_val" placeholder="value">';
+  html += '<button type="button" class="rule-remove" onclick="document.getElementById(\'' + rid + '\').remove()">&times;</button>';
+  html += '</div>';
+  container.insertAdjacentHTML('beforeend', html);
+}
+
+function onFieldChange(sel, rid) {
+  var field = FIELDS.find(function(f) { return f.value === sel.value; });
+  if (!field) return;
+  var opSel = document.getElementById(rid + '_op');
+  var valInput = document.getElementById(rid + '_val');
+  var ops = OPS[field.type] || OPS.string;
+  opSel.innerHTML = '';
+  ops.forEach(function(o) {
+    opSel.innerHTML += '<option value="' + o.value + '">' + o.label + '</option>';
+  });
+  if (field.type === 'enum' && field.options) {
+    valInput.outerHTML = '<select id="' + rid + '_val">' +
+      field.options.map(function(o) { return '<option value="' + o + '">' + o + '</option>'; }).join('') +
+      '</select>';
+  } else if (field.type === 'date' || field.type === 'number') {
+    valInput.type = field.type === 'date' ? 'date' : 'number';
+    valInput.placeholder = field.type === 'date' ? 'YYYY-MM-DD or days' : '0';
+  } else {
+    valInput.type = 'text';
+    valInput.placeholder = 'value';
+  }
+}
+
+function removeGroup(gid) {
+  var el = document.getElementById(gid);
+  if (el) el.remove();
+}
+
+function collectRules() {
+  var groups = [];
+  document.querySelectorAll('.rule-group').forEach(function(groupEl) {
+    var rules = [];
+    groupEl.querySelectorAll('.rule-row').forEach(function(row) {
+      var selects = row.querySelectorAll('select');
+      var valEl = row.querySelector('[id$="_val"]');
+      if (selects.length >= 2 && valEl && valEl.value) {
+        rules.push({
+          field: selects[0].value,
+          operator: selects[1].value,
+          value: valEl.value
+        });
+      }
+    });
+    if (rules.length > 0) {
+      groups.push({ logic: 'AND', rules: rules });
+    }
+  });
+  return groups;
+}
+
+function previewCount() {
+  var rules = collectRules();
+  if (rules.length === 0) { document.getElementById('previewResult').textContent = 'Add at least one rule'; return; }
+  document.getElementById('previewBtn').disabled = true;
+  document.getElementById('previewResult').textContent = 'Counting...';
+
+  var csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+  fetch('/dashboard/segments/count', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+    body: JSON.stringify({
+      _csrf: csrfToken,
+      siteId: document.getElementById('segSiteId').value,
+      logic: document.getElementById('topLogic').value,
+      rules: rules
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    document.getElementById('previewResult').innerHTML = data.success
+      ? '<span style="color:var(--success);font-weight:600;">' + data.count.toLocaleString() + ' subscribers match</span>'
+      : '<span style="color:var(--danger);">Error: ' + (data.error || 'unknown') + '</span>';
+    document.getElementById('previewBtn').disabled = false;
+  })
+  .catch(function() {
+    document.getElementById('previewResult').textContent = 'Request failed';
+    document.getElementById('previewBtn').disabled = false;
+  });
+}
+
+document.getElementById('segmentForm').addEventListener('submit', function() {
+  document.getElementById('rulesJson').value = JSON.stringify(collectRules());
+});
+
+// Start with one empty group
+addGroup();
+</script>
+
+<%- include('../partials/footer') %>

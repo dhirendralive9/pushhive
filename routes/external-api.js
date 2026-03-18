@@ -339,6 +339,64 @@ router.get('/analytics', async (req, res) => {
   }
 });
 
+// ── Segments ────────────────────────────────────────────────────
+const Segment = require('../models/Segment');
+
+// List segments
+router.get('/segments', async (req, res) => {
+  try {
+    const segments = await Segment.find({ siteId: req.site._id, active: true })
+      .sort({ createdAt: -1 }).lean();
+    res.json({ success: true, data: segments });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch segments' });
+  }
+});
+
+// Create segment
+router.post('/segments', async (req, res) => {
+  try {
+    const { name, description, logic, groups } = req.body;
+    if (!name || !groups || !groups.length) {
+      return res.status(400).json({ error: 'name and groups array are required' });
+    }
+    const segment = new Segment({
+      siteId: req.site._id, name, description: description || '',
+      logic: logic || 'AND', groups
+    });
+    const query = segment.buildQuery();
+    segment.estimatedCount = await Subscriber.countDocuments(query);
+    segment.lastCountedAt = new Date();
+    await segment.save();
+    res.status(201).json({ success: true, data: segment });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create segment: ' + err.message });
+  }
+});
+
+// Get segment with count
+router.get('/segments/:id', async (req, res) => {
+  try {
+    const segment = await Segment.findOne({ _id: req.params.id, siteId: req.site._id });
+    if (!segment) return res.status(404).json({ error: 'Segment not found' });
+    const count = await Subscriber.countDocuments(segment.buildQuery());
+    res.json({ success: true, data: { ...segment.toObject(), estimatedCount: count } });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch segment' });
+  }
+});
+
+// Delete segment
+router.delete('/segments/:id', async (req, res) => {
+  try {
+    const result = await Segment.findOneAndDelete({ _id: req.params.id, siteId: req.site._id });
+    if (!result) return res.status(404).json({ error: 'Segment not found' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete segment' });
+  }
+});
+
 // ── Webhooks ────────────────────────────────────────────────────
 const Webhook = require('../models/Webhook');
 

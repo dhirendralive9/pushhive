@@ -2,6 +2,27 @@
 
 All notable changes to PushHive will be documented in this file.
 
+## [2.5.0] - 2026-03-18
+
+### Added
+- **Advanced Segments Builder** — create saved audience segments with complex filtering rules
+  - Visual rule builder UI: add rule groups, pick fields, operators, and values
+  - 12 filterable fields: browser, OS, device, tags, country, city, subscribed date, last active, total clicks, total received, referrer, landing page
+  - 12 operators: equals, not equals, contains, in, greater than, less than, after, before, in last N days, not in last N days
+  - Rule groups connected by AND/OR logic at both group and top level
+  - Live "Preview Count" button — shows matching subscriber count before saving
+  - Segment detail page with rules display, stats, and sample matching subscribers
+  - Segments selectable as campaign targets (new "By segment" radio option in campaign form)
+  - Campaign worker resolves segment queries at send time for accurate targeting
+  - REST API: full CRUD at `/api/v1/segments` + count endpoint
+  - Estimated count cached and refreshed on view
+  - Sidebar nav item for Segments
+
+### Changed
+- Campaign model: added `targetSegment` field for segment-based targeting
+- Campaign form: targeting section now supports All / Tags / Segment
+- Worker: resolves segment `buildQuery()` when processing segment-targeted campaigns
+
 ## [2.4.0] - 2026-03-18
 
 ### Added

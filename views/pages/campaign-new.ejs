@@ -116,21 +116,55 @@
     </div>
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-        <input type="radio" name="targetAll" value="true" checked>
+        <input type="radio" name="targetAll" value="true" checked onchange="toggleTargeting('all')">
         <span class="form-label" style="margin:0;">All subscribers</span>
       </label>
     </div>
     <div class="form-group">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-        <input type="radio" name="targetAll" value="false">
+        <input type="radio" name="targetAll" value="false" onchange="toggleTargeting('tags')">
         <span class="form-label" style="margin:0;">By tags</span>
       </label>
     </div>
+    <% if (typeof segments !== 'undefined' && segments.length > 0) { %>
     <div class="form-group">
-      <label class="form-label">Tags (comma separated)</label>
-      <input type="text" name="targetTags" class="form-input" placeholder="vip, premium, returning">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="radio" name="targetAll" value="segment" onchange="toggleTargeting('segment')">
+        <span class="form-label" style="margin:0;">By segment</span>
+      </label>
     </div>
+    <% } %>
+
+    <div id="target-tags" style="display:none;">
+      <div class="form-group">
+        <label class="form-label">Tags (comma separated)</label>
+        <input type="text" name="targetTags" class="form-input" placeholder="vip, premium, returning">
+      </div>
+    </div>
+
+    <% if (typeof segments !== 'undefined' && segments.length > 0) { %>
+    <div id="target-segment" style="display:none;">
+      <div class="form-group">
+        <label class="form-label">Select Segment</label>
+        <select name="targetSegment" class="form-select">
+          <option value="">Choose a segment...</option>
+          <% segments.forEach(function(seg) { %>
+          <option value="<%= seg._id %>"><%= seg.name %> — ~<%= (seg.estimatedCount || 0).toLocaleString() %> subscribers (<%= seg.siteId ? seg.siteId.name : '' %>)</option>
+          <% }) %>
+        </select>
+        <p class="form-help"><a href="/dashboard/segments" style="color:var(--primary-hover)">Manage segments</a></p>
+      </div>
+    </div>
+    <% } %>
   </div>
+
+  <script>
+  function toggleTargeting(mode) {
+    document.getElementById('target-tags').style.display = mode === 'tags' ? 'block' : 'none';
+    var segEl = document.getElementById('target-segment');
+    if (segEl) segEl.style.display = mode === 'segment' ? 'block' : 'none';
+  }
+  </script>
 
   <!-- A/B Testing -->
   <div class="card">

@@ -1,0 +1,140 @@
+<%- include('../partials/header', { pageTitle: segment.name, activePage: 'segments' }) %>
+
+<div class="page-header">
+  <h1><%= segment.name %></h1>
+  <div class="flex gap-8">
+    <a href="/dashboard/segments" class="btn btn-outline">&larr; Back</a>
+    <a href="/dashboard/campaigns/new" class="btn btn-primary btn-sm">Send to Segment</a>
+    <form method="POST" action="/dashboard/segments/<%= segment._id %>/delete" style="display:inline;">
+      <button type="submit" class="btn btn-danger btn-sm" data-confirm="Delete this segment?">Delete</button>
+    </form>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Matching Subscribers</div>
+    <div class="stat-value primary"><%= (segment.estimatedCount || 0).toLocaleString() %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Rule Groups</div>
+    <div class="stat-value"><%= segment.groups ? segment.groups.length : 0 %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Rules</div>
+    <div class="stat-value"><%= segment.groups ? segment.groups.reduce(function(t, g) { return t + (g.rules ? g.rules.length : 0); }, 0) : 0 %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Last Counted</div>
+    <div class="stat-value" style="font-size:14px;"><%= segment.lastCountedAt ? new Date(segment.lastCountedAt).toLocaleString() : 'Never' %></div>
+  </div>
+</div>
+
+<!-- Segment Info -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Configuration</span>
+    </div>
+    <table>
+      <tr><td class="text-muted" style="width:100px;">Site</td><td><%= segment.siteId ? segment.siteId.name : '—' %></td></tr>
+      <tr><td class="text-muted">Logic</td><td><span class="badge badge-primary"><%= segment.logic %></span> between groups</td></tr>
+      <% if (segment.description) { %>
+      <tr><td class="text-muted">Description</td><td class="text-sm"><%= segment.description %></td></tr>
+      <% } %>
+      <tr><td class="text-muted">Created</td><td class="text-sm"><%= new Date(segment.createdAt).toLocaleString() %></td></tr>
+    </table>
+  </div>
+
+  <!-- Rules Display -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Rules</span>
+    </div>
+    <% if (segment.groups && segment.groups.length > 0) { %>
+      <% segment.groups.forEach(function(group, gi) { %>
+        <% if (gi > 0) { %>
+        <div style="text-align:center;padding:8px 0;">
+          <span class="badge badge-primary" style="font-size:11px;"><%= segment.logic %></span>
+        </div>
+        <% } %>
+        <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:12px;margin-bottom:4px;">
+          <div class="text-xs text-muted" style="margin-bottom:8px;font-weight:600;">Group <%= gi + 1 %> (<%= group.logic %>)</div>
+          <% if (group.rules) { group.rules.forEach(function(rule, ri) { %>
+            <% if (ri > 0) { %>
+            <div class="text-xs" style="color:var(--primary-hover);padding:2px 0;font-weight:500;"><%= group.logic %></div>
+            <% } %>
+            <div class="text-sm" style="padding:4px 0;">
+              <code style="color:var(--primary-hover);"><%= rule.field %></code>
+              <span class="text-muted"><%= rule.operator.replace(/_/g, ' ') %></span>
+              <strong>"<%= typeof rule.value === 'object' ? JSON.stringify(rule.value) : rule.value %>"</strong>
+            </div>
+          <% }); } %>
+        </div>
+      <% }) %>
+    <% } else { %>
+      <p class="text-muted text-sm">No rules defined (matches all subscribers).</p>
+    <% } %>
+  </div>
+</div>
+
+<!-- Sample Subscribers -->
+<div class="card mt-24">
+  <div class="card-header">
+    <span class="card-title">Sample Matching Subscribers (first 10)</span>
+  </div>
+  <% if (sampleSubs.length === 0) { %>
+    <p class="text-muted text-sm">No subscribers match this segment currently.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Browser</th><th>OS</th><th>Device</th><th>Tags</th><th>Clicks</th><th>Last Active</th><th>Subscribed</th></tr></thead>
+      <tbody>
+        <% sampleSubs.forEach(function(sub) { %>
+        <tr>
+          <td><%= sub.browser %></td>
+          <td><%= sub.os %></td>
+          <td><span class="badge badge-primary"><%= sub.device %></span></td>
+          <td>
+            <% if (sub.tags && sub.tags.length > 0) { %>
+              <% sub.tags.forEach(function(t) { %>
+              <span class="badge badge-warning" style="margin:1px;font-size:10px;"><%= t %></span>
+              <% }) %>
+            <% } else { %>
+              <span class="text-muted">—</span>
+            <% } %>
+          </td>
+          <td><%= sub.totalClicks || 0 %></td>
+          <td class="text-muted text-xs"><%= sub.lastActive ? new Date(sub.lastActive).toLocaleDateString() : '—' %></td>
+          <td class="text-muted text-xs"><%= new Date(sub.createdAt).toLocaleDateString() %></td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<!-- Usage Hint -->
+<div class="card mt-24">
+  <div class="card-header">
+    <span class="card-title">Using this segment</span>
+  </div>
+  <p class="text-sm text-muted">
+    To send a campaign to this segment, go to <a href="/dashboard/campaigns/new" style="color:var(--primary-hover)">New Campaign</a>,
+    and under Targeting select "By segment" → "<%= segment.name %>".
+    You can also use the REST API:
+  </p>
+  <div class="code-block mt-8">
+    <pre>{
+  "title": "Your notification",
+  "body": "...",
+  "url": "https://...",
+  "targetAll": false,
+  "targetSegment": "<%= segment._id %>"
+}</pre>
+  </div>
+</div>
+
+<%- include('../partials/footer') %>

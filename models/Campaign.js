@@ -44,6 +44,7 @@ const campaignSchema = new mongoose.Schema({
   targetTags: [{ type: String }],
   targetBrowsers: [{ type: String }],
   targetDevices: [{ type: String }],
+  targetSegment: { type: mongoose.Schema.Types.ObjectId, ref: 'Segment' },
   // Actions (up to 2 buttons)
   actions: [{
     title: { type: String },
