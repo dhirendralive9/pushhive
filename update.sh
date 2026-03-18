@@ -3,7 +3,7 @@ set -e
 
 # ─────────────────────────────────────────────────────────────────
 # PushHive — Update Script
-# Fetches latest code from GitHub, rebuilds, restarts
+# Checks GitHub for new version, updates if available
 # ─────────────────────────────────────────────────────────────────
 
 BOLD='\033[1m'
@@ -14,190 +14,215 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 REPO_URL="https://github.com/dhirendralive9/pushhive.git"
+REPO_RAW="https://raw.githubusercontent.com/dhirendralive9/pushhive/main/package.json"
 DEFAULT_DIR="/opt/pushhive"
 
 echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}${BOLD}║           PushHive Updater v1.0              ║${NC}"
+echo -e "${CYAN}${BOLD}║           PushHive Updater v1.1              ║${NC}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
 
 # ── Find Install Directory ───────────────────────────────────────
 if [ -f "$DEFAULT_DIR/.env" ] && [ -f "$DEFAULT_DIR/docker-compose.yml" ]; then
   INSTALL_DIR="$DEFAULT_DIR"
-  echo -e "${BOLD}Install directory:${NC} $INSTALL_DIR"
 else
-  echo -e "${YELLOW}PushHive not found at default location ($DEFAULT_DIR)${NC}"
+  echo -e "${YELLOW}PushHive not found at $DEFAULT_DIR${NC}"
   read -p "Enter your PushHive install directory: " INSTALL_DIR
-  
+
   if [ -z "$INSTALL_DIR" ]; then
     echo -e "${RED}No directory provided. Aborting.${NC}"
     exit 1
   fi
-  
-  if [ ! -f "$INSTALL_DIR/.env" ]; then
-    echo -e "${RED}✗ No .env found at $INSTALL_DIR — not a valid PushHive installation.${NC}"
+
+  if [ ! -f "$INSTALL_DIR/.env" ] || [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
+    echo -e "${RED}✗ Not a valid PushHive installation at $INSTALL_DIR${NC}"
     exit 1
   fi
-  
-  if [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
-    echo -e "${RED}✗ No docker-compose.yml found at $INSTALL_DIR${NC}"
-    exit 1
-  fi
-  
-  echo -e "${GREEN}✓ Found PushHive at $INSTALL_DIR${NC}"
 fi
 
 cd "$INSTALL_DIR"
+echo -e "${BOLD}Install directory:${NC} $INSTALL_DIR"
+
+# ── Get Current Version ──────────────────────────────────────────
+CURRENT_VER="unknown"
+
+# Method 1: Read from package.json on disk
+if [ -f "$INSTALL_DIR/package.json" ]; then
+  CURRENT_VER=$(grep '"version"' "$INSTALL_DIR/package.json" | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+fi
+
+# Method 2: Ask the running app (more accurate)
+APP_PORT=$(grep "^APP_PORT=" "$INSTALL_DIR/.env" 2>/dev/null | cut -d'=' -f2 || echo "3000")
+APP_PORT=${APP_PORT:-3000}
+RUNNING_VER=$(curl -sf "http://localhost:${APP_PORT}/version" 2>/dev/null | grep -o '"version":"[^"]*"' | cut -d'"' -f4 || echo "")
+if [ -n "$RUNNING_VER" ]; then
+  CURRENT_VER="$RUNNING_VER"
+fi
+
+echo -e "${BOLD}Current version:${NC}  $CURRENT_VER"
+
+# ── Check Latest Version on GitHub ───────────────────────────────
+echo -e "  Checking GitHub for updates..."
+LATEST_VER=$(curl -sf "$REPO_RAW" 2>/dev/null | grep '"version"' | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/' || echo "")
+
+if [ -z "$LATEST_VER" ]; then
+  echo -e "${YELLOW}  Could not fetch version from GitHub. Continuing anyway...${NC}"
+  LATEST_VER="unknown"
+fi
+
+echo -e "${BOLD}Latest version:${NC}   $LATEST_VER"
 echo ""
 
-# Get current version
-CURRENT_VER=$(node -e "try{console.log(require('$INSTALL_DIR/package.json').version)}catch(e){console.log('unknown')}" 2>/dev/null || echo "unknown")
-echo -e "${BOLD}Current version:${NC} $CURRENT_VER"
+# ── Compare Versions ─────────────────────────────────────────────
+if [ "$CURRENT_VER" = "$LATEST_VER" ] && [ "$LATEST_VER" != "unknown" ]; then
+  echo -e "${GREEN}✓ You're already on the latest version ($CURRENT_VER)${NC}"
+  echo ""
+  read -p "Force update anyway? (y/n) [n]: " FORCE
+  FORCE=${FORCE:-n}
+  if [ "$FORCE" != "y" ] && [ "$FORCE" != "Y" ]; then
+    echo "  No update needed."
+    exit 0
+  fi
+else
+  if [ "$LATEST_VER" != "unknown" ] && [ "$CURRENT_VER" != "unknown" ]; then
+    echo -e "${CYAN}Update available: $CURRENT_VER → $LATEST_VER${NC}"
+  fi
+  read -p "Proceed with update? (y/n) [y]: " PROCEED
+  PROCEED=${PROCEED:-y}
+  if [ "$PROCEED" != "y" ] && [ "$PROCEED" != "Y" ]; then
+    echo "  Update cancelled."
+    exit 0
+  fi
+fi
+
 echo ""
 
 # ── Step 1: Backup ──────────────────────────────────────────────
 echo -e "${BOLD}[1/4] Backing up...${NC}"
 
-BACKUP_DIR="${INSTALL_DIR}/backups/$(date +%Y%m%d_%H%M%S)"
+BACKUP_DIR="${INSTALL_DIR}/backups/$(date +%Y%m%d_%H%M%S)_v${CURRENT_VER}"
 mkdir -p "$BACKUP_DIR"
 
-# Backup .env
 cp "$INSTALL_DIR/.env" "$BACKUP_DIR/.env.backup"
 echo -e "  ✓ .env backed up"
 
-# Backup MongoDB
 docker compose exec -T mongo mongodump --db=pushhive --out=/dump/backup_latest > /dev/null 2>&1 && {
   docker compose cp mongo:/dump/backup_latest "$BACKUP_DIR/mongo_dump" > /dev/null 2>&1 || true
   echo -e "  ✓ MongoDB backed up"
 } || {
-  echo -e "  ${YELLOW}⚠ MongoDB backup skipped (containers may not be running)${NC}"
+  echo -e "  ${YELLOW}⚠ MongoDB backup skipped${NC}"
 }
 
-echo -e "${GREEN}✓ Backup saved to $BACKUP_DIR${NC}"
+echo -e "${GREEN}✓ Backup → $BACKUP_DIR${NC}"
 echo ""
 
-# ── Step 2: Fetch Latest from GitHub ────────────────────────────
-echo -e "${BOLD}[2/4] Fetching latest code from GitHub...${NC}"
+# ── Step 2: Pull from GitHub ────────────────────────────────────
+echo -e "${BOLD}[2/4] Downloading latest from GitHub...${NC}"
 
 TEMP_DIR=$(mktemp -d)
-echo -e "  Cloning $REPO_URL ..."
 
-git clone --depth 1 "$REPO_URL" "$TEMP_DIR/pushhive" 2>&1 | tail -1 || {
+git clone --depth 1 "$REPO_URL" "$TEMP_DIR/pushhive" 2>&1 | tail -3 || {
   echo -e "${RED}✗ Git clone failed. Check your internet connection.${NC}"
   rm -rf "$TEMP_DIR"
   exit 1
 }
 
-NEW_VER=$(node -e "try{console.log(require('$TEMP_DIR/pushhive/package.json').version)}catch(e){console.log('unknown')}" 2>/dev/null || echo "unknown")
-echo -e "  Latest version: ${NEW_VER}"
+echo -e "${GREEN}✓ Downloaded${NC}"
 
-if [ "$CURRENT_VER" = "$NEW_VER" ]; then
-  echo -e "${YELLOW}  You're already on the latest version ($NEW_VER)${NC}"
-  read -p "  Continue anyway? (y/n) [n]: " FORCE_UPDATE
-  FORCE_UPDATE=${FORCE_UPDATE:-n}
-  if [ "$FORCE_UPDATE" != "y" ] && [ "$FORCE_UPDATE" != "Y" ]; then
-    rm -rf "$TEMP_DIR"
-    echo -e "  Update cancelled."
-    exit 0
-  fi
+# Copy new files, preserve .env and backups
+echo -e "  Copying new files..."
+cp "$INSTALL_DIR/.env" /tmp/pushhive_env_safe
+
+# Use rsync if available, otherwise manual copy
+if command -v rsync &> /dev/null; then
+  rsync -a \
+    --exclude='.env' \
+    --exclude='backups' \
+    --exclude='node_modules' \
+    --exclude='.git' \
+    "$TEMP_DIR/pushhive/" "$INSTALL_DIR/"
+else
+  # Manual copy — skip protected files
+  cd "$TEMP_DIR/pushhive"
+  find . -type f \
+    ! -path './.env' \
+    ! -path './backups/*' \
+    ! -path './node_modules/*' \
+    ! -path './.git/*' \
+    -exec cp --parents {} "$INSTALL_DIR/" \;
+  cd "$INSTALL_DIR"
 fi
 
-# Copy new files to install directory, preserving .env and backups
-echo -e "  Copying new files..."
-
-# Save .env before copying
-cp "$INSTALL_DIR/.env" /tmp/pushhive_env_backup
-
-# Copy everything except .env, backups, and node_modules
-rsync -a --exclude='.env' --exclude='backups' --exclude='node_modules' --exclude='.git' \
-  "$TEMP_DIR/pushhive/" "$INSTALL_DIR/" 2>/dev/null || {
-  # Fallback if rsync not available
-  find "$TEMP_DIR/pushhive" -maxdepth 1 -not -name '.env' -not -name 'backups' -not -name '.git' | while read f; do
-    fname=$(basename "$f")
-    if [ "$fname" != "pushhive" ]; then
-      cp -r "$f" "$INSTALL_DIR/"
-    fi
-  done
-}
-
 # Restore .env
-cp /tmp/pushhive_env_backup "$INSTALL_DIR/.env"
-rm -f /tmp/pushhive_env_backup
+cp /tmp/pushhive_env_safe "$INSTALL_DIR/.env"
+rm -f /tmp/pushhive_env_safe
 
-# Check for new .env variables
+# Add any new .env variables from .env.example
 if [ -f "$INSTALL_DIR/.env.example" ]; then
-  ADDED_VARS=0
   while IFS= read -r line; do
     [[ "$line" =~ ^#.*$ ]] && continue
     [[ -z "$line" ]] && continue
     KEY=$(echo "$line" | cut -d'=' -f1)
     if ! grep -q "^${KEY}=" "$INSTALL_DIR/.env" 2>/dev/null; then
       echo "$line" >> "$INSTALL_DIR/.env"
-      echo -e "  ${YELLOW}New config added: ${KEY}${NC}"
-      ADDED_VARS=$((ADDED_VARS + 1))
+      echo -e "  ${YELLOW}New config: ${KEY}${NC}"
     fi
   done < "$INSTALL_DIR/.env.example"
-  if [ $ADDED_VARS -gt 0 ]; then
-    echo -e "  ${YELLOW}Review new variables in .env if needed${NC}"
-  fi
 fi
 
-# Cleanup temp
 rm -rf "$TEMP_DIR"
-echo -e "${GREEN}✓ Code updated to $NEW_VER${NC}"
+
+UPDATED_VER=$(grep '"version"' "$INSTALL_DIR/package.json" | head -1 | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+echo -e "${GREEN}✓ Files updated to v${UPDATED_VER}${NC}"
 echo ""
 
 # ── Step 3: Rebuild & Restart ───────────────────────────────────
-echo -e "${BOLD}[3/4] Rebuilding and restarting...${NC}"
+echo -e "${BOLD}[3/4] Rebuilding containers...${NC}"
 
 cd "$INSTALL_DIR"
 docker compose build
 docker compose up -d
 
-# Wait for services
-echo -e "  Waiting for services..."
-RETRIES=15
-until docker compose exec -T mongo mongosh --eval "db.runCommand({ping:1})" > /dev/null 2>&1; do
+echo -e "  Waiting for services to be healthy..."
+RETRIES=20
+until curl -sf "http://localhost:${APP_PORT}/health" > /dev/null 2>&1; do
   RETRIES=$((RETRIES - 1))
   if [ $RETRIES -le 0 ]; then
-    echo -e "${RED}✗ MongoDB not responding after rebuild.${NC}"
-    echo -e "${YELLOW}  Restoring .env from backup...${NC}"
-    cp "$BACKUP_DIR/.env.backup" "$INSTALL_DIR/.env"
-    docker compose restart
+    echo -e "${RED}✗ App not responding after rebuild.${NC}"
+    echo -e "${YELLOW}  Check logs: docker compose logs -f app${NC}"
+    echo -e "${YELLOW}  To rollback: cp $BACKUP_DIR/.env.backup .env && docker compose up -d --build${NC}"
     exit 1
   fi
-  sleep 2
+  sleep 3
 done
 
-echo -e "${GREEN}✓ Containers rebuilt and running${NC}"
+echo -e "${GREEN}✓ Containers rebuilt and healthy${NC}"
 echo ""
 
 # ── Step 4: Verify ──────────────────────────────────────────────
 echo -e "${BOLD}[4/4] Verifying...${NC}"
 
-sleep 3
-if docker compose ps | grep -q "running\|Up"; then
-  echo -e "${GREEN}✓ All containers healthy${NC}"
-else
-  echo -e "${RED}✗ Container issue detected:${NC}"
-  docker compose ps
-  echo ""
-  echo -e "${YELLOW}Check logs: cd $INSTALL_DIR && docker compose logs -f${NC}"
-  exit 1
-fi
+HEALTH=$(curl -sf "http://localhost:${APP_PORT}/health" 2>/dev/null || echo '{}')
+RUNNING_VER=$(echo "$HEALTH" | grep -o '"version":"[^"]*"' | cut -d'"' -f4 || echo "$UPDATED_VER")
+MONGO_STATUS=$(echo "$HEALTH" | grep -o '"mongo":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+MEMORY=$(echo "$HEALTH" | grep -o '"memory":"[^"]*"' | cut -d'"' -f4 || echo "unknown")
+
+echo -e "  Version: ${GREEN}$RUNNING_VER${NC}"
+echo -e "  MongoDB: ${GREEN}$MONGO_STATUS${NC}"
+echo -e "  Memory:  $MEMORY"
+echo ""
 
 # ── Done ─────────────────────────────────────────────────────────
-echo ""
 echo -e "${GREEN}${BOLD}╔══════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}${BOLD}║        PushHive Updated Successfully!        ║${NC}"
 echo -e "${GREEN}${BOLD}╚══════════════════════════════════════════════╝${NC}"
 echo ""
-echo -e "  ${BOLD}Previous:${NC}  $CURRENT_VER"
-echo -e "  ${BOLD}Current:${NC}   $NEW_VER"
-echo -e "  ${BOLD}Backup:${NC}    $BACKUP_DIR"
+echo -e "  ${BOLD}Updated:${NC}  $CURRENT_VER → $RUNNING_VER"
+echo -e "  ${BOLD}Backup:${NC}   $BACKUP_DIR"
 echo ""
-echo -e "${BOLD}Rollback if needed:${NC}"
-echo -e "  cp $BACKUP_DIR/.env.backup $INSTALL_DIR/.env"
+echo -e "${BOLD}Rollback:${NC}"
+echo -e "  cd $INSTALL_DIR"
+echo -e "  cp $BACKUP_DIR/.env.backup .env"
 echo -e "  docker compose up -d --build"
 echo ""

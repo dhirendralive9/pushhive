@@ -1,11 +1,12 @@
 {
   "name": "pushhive",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Self-hosted open source web push notification system",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "health": "node -e \"fetch('http://localhost:'+(process.env.PORT||3000)+'/health').then(r=>r.json()).then(d=>{console.log(d);process.exit(d.status==='ok'?0:1)}).catch(e=>{console.error(e);process.exit(1)})\""
   },
   "dependencies": {
     "bcrypt": "^5.1.1",

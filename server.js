@@ -53,12 +53,13 @@ app.use(session({
 // CSRF token generation for all dashboard pages
 app.use(generateCsrfToken);
 
-// Make session data + Turnstile config available to all EJS views
+// Make session data + config available to all EJS views
 app.use((req, res, next) => {
   res.locals.admin = req.session.admin || null;
   res.locals.success = req.session.success || null;
   res.locals.error = req.session.error || null;
   res.locals.turnstileSiteKey = process.env.TURNSTILE_SITE_KEY || '';
+  res.locals.appVersion = pkg.version;
   delete req.session.success;
   delete req.session.error;
   next();
@@ -67,6 +68,30 @@ app.use((req, res, next) => {
 // ── View Engine ─────────────────────────────────────────────────
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+
+// ── Health Check & Version ──────────────────────────────────────
+const pkg = require('./package.json');
+
+app.get('/health', async (req, res) => {
+  try {
+    const mongoState = mongoose.connection.readyState; // 1 = connected
+    const uptime = process.uptime();
+    res.json({
+      status: mongoState === 1 ? 'ok' : 'degraded',
+      version: pkg.version,
+      uptime: Math.floor(uptime),
+      mongo: mongoState === 1 ? 'connected' : 'disconnected',
+      memory: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ status: 'error', error: err.message });
+  }
+});
+
+app.get('/version', (req, res) => {
+  res.json({ version: pkg.version, name: pkg.name });
+});
 
 // ── Routes (with rate limiters) ─────────────────────────────────
 app.use('/auth', require('./routes/auth'));
