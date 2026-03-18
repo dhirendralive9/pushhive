@@ -1,0 +1,172 @@
+<%- include('../partials/header', { pageTitle: 'New Automation', activePage: 'automations' }) %>
+
+<div class="page-header">
+  <h1>New Automation</h1>
+  <a href="/dashboard/automations" class="btn btn-outline">&larr; Back</a>
+</div>
+
+<form method="POST" action="/dashboard/automations" id="autoForm">
+  <div class="card">
+    <div class="card-header"><span class="card-title">Configuration</span></div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Automation Name</label>
+        <input type="text" name="name" class="form-input" placeholder="Welcome Drip" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Site</label>
+        <select name="siteId" class="form-select" required>
+          <% sites.forEach(function(s) { %>
+          <option value="<%= s._id %>"><%= s.name %></option>
+          <% }) %>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description (optional)</label>
+      <input type="text" name="description" class="form-input" placeholder="Onboarding sequence for new subscribers">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Trigger</label>
+        <select name="triggerType" class="form-select" onchange="document.getElementById('triggerValueWrap').style.display=this.value==='tag.added'?'block':'none'">
+          <option value="subscriber.new" selected>New subscriber</option>
+          <option value="tag.added">Tag added to subscriber</option>
+          <option value="manual">Manual enrollment only</option>
+        </select>
+      </div>
+      <div class="form-group" id="triggerValueWrap" style="display:none;">
+        <label class="form-label">Tag Name</label>
+        <input type="text" name="triggerValue" class="form-input" placeholder="premium">
+      </div>
+    </div>
+
+    <h3 style="font-size:15px;font-weight:600;color:#fff;margin:20px 0 12px;">UTM Parameters</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">utm_source</label>
+        <input type="text" name="utmSource" class="form-input" value="pushhive">
+      </div>
+      <div class="form-group">
+        <label class="form-label">utm_medium</label>
+        <input type="text" name="utmMedium" class="form-input" value="web_push">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">utm_campaign</label>
+      <input type="text" name="utmCampaign" class="form-input" value="drip">
+    </div>
+  </div>
+
+  <!-- Steps Builder -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Steps</span>
+      <button type="button" class="btn btn-primary btn-sm" onclick="addStep()">+ Add Step</button>
+    </div>
+    <p class="text-muted text-sm mb-16">Build your notification sequence. Each step sends after the specified delay from the previous step.</p>
+    <div id="stepsContainer"></div>
+  </div>
+
+  <input type="hidden" name="steps" id="stepsJson">
+  <div class="flex gap-8">
+    <button type="submit" class="btn btn-primary">Create Automation</button>
+    <a href="/dashboard/automations" class="btn btn-outline">Cancel</a>
+  </div>
+</form>
+
+<style>
+.step-card{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-bottom:12px;position:relative;}
+.step-number{position:absolute;top:-10px;left:16px;background:var(--primary);color:#fff;font-size:11px;font-weight:600;padding:2px 10px;border-radius:10px;}
+.step-remove{position:absolute;top:8px;right:8px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:18px;}
+.step-arrow{text-align:center;padding:4px 0;color:var(--text-dim);font-size:20px;}
+</style>
+
+<script>
+var stepCount = 0;
+
+function addStep() {
+  stepCount++;
+  var n = stepCount;
+  var html = '';
+  if (n > 1) html += '<div class="step-arrow">&#8595;</div>';
+  html += '<div class="step-card" id="step-' + n + '">';
+  html += '<span class="step-number">Step ' + n + '</span>';
+  html += '<button type="button" class="step-remove" onclick="removeStep(' + n + ')">&times;</button>';
+
+  // Delay
+  html += '<div style="display:flex;gap:8px;margin:12px 0 16px;">';
+  html += '<span class="text-sm" style="line-height:34px;color:var(--text-muted);">Wait</span>';
+  html += '<input type="number" class="form-input" id="s' + n + '_dd" min="0" value="' + (n === 1 ? '0' : '1') + '" style="width:60px;" placeholder="0"><span class="text-xs" style="line-height:34px;color:var(--text-muted);">days</span>';
+  html += '<input type="number" class="form-input" id="s' + n + '_dh" min="0" value="0" style="width:60px;" placeholder="0"><span class="text-xs" style="line-height:34px;color:var(--text-muted);">hours</span>';
+  html += '<input type="number" class="form-input" id="s' + n + '_dm" min="0" value="0" style="width:60px;" placeholder="0"><span class="text-xs" style="line-height:34px;color:var(--text-muted);">min</span>';
+  html += '<span class="text-sm" style="line-height:34px;color:var(--text-muted);">then send:</span>';
+  html += '</div>';
+
+  // Content
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
+  html += '<div class="form-group"><label class="form-label">Title</label><input type="text" class="form-input" id="s' + n + '_title" placeholder="Step ' + n + ' title" maxlength="100"></div>';
+  html += '<div class="form-group"><label class="form-label">URL</label><input type="url" class="form-input" id="s' + n + '_url" placeholder="https://example.com/page"></div>';
+  html += '</div>';
+  html += '<div class="form-group"><label class="form-label">Body</label><textarea class="form-textarea" id="s' + n + '_body" placeholder="Notification body text" maxlength="250" style="min-height:50px;"></textarea></div>';
+
+  // Condition
+  html += '<div style="display:flex;gap:8px;align-items:center;">';
+  html += '<span class="text-xs text-muted">Condition:</span>';
+  html += '<select class="form-select" id="s' + n + '_cond" style="font-size:12px;padding:4px 8px;width:auto;" onchange="document.getElementById(\'s' + n + '_condval\').style.display=this.value.includes(\'tag\')?\'inline-block\':\'none\'">';
+  html += '<option value="none">Always send</option>';
+  html += '<option value="clicked_previous">Only if clicked previous step</option>';
+  html += '<option value="not_clicked_previous">Only if NOT clicked previous</option>';
+  html += '<option value="has_tag">Subscriber has tag</option>';
+  html += '<option value="not_has_tag">Subscriber does NOT have tag</option>';
+  html += '</select>';
+  html += '<input type="text" class="form-input" id="s' + n + '_condval" placeholder="tag name" style="display:none;width:120px;font-size:12px;padding:4px 8px;">';
+  html += '</div>';
+
+  html += '</div>';
+  document.getElementById('stepsContainer').insertAdjacentHTML('beforeend', html);
+}
+
+function removeStep(n) {
+  var el = document.getElementById('step-' + n);
+  if (el) {
+    // Remove preceding arrow if exists
+    if (el.previousElementSibling && el.previousElementSibling.classList.contains('step-arrow')) {
+      el.previousElementSibling.remove();
+    }
+    el.remove();
+  }
+}
+
+function collectSteps() {
+  var steps = [];
+  document.querySelectorAll('.step-card').forEach(function(card) {
+    var id = card.id.replace('step-', '');
+    var title = document.getElementById('s' + id + '_title');
+    var body = document.getElementById('s' + id + '_body');
+    var url = document.getElementById('s' + id + '_url');
+    if (!title || !title.value || !body || !body.value || !url || !url.value) return;
+
+    steps.push({
+      delayDays: parseInt(document.getElementById('s' + id + '_dd').value) || 0,
+      delayHours: parseInt(document.getElementById('s' + id + '_dh').value) || 0,
+      delayMinutes: parseInt(document.getElementById('s' + id + '_dm').value) || 0,
+      title: title.value,
+      body: body.value,
+      url: url.value,
+      conditionType: document.getElementById('s' + id + '_cond').value,
+      conditionValue: document.getElementById('s' + id + '_condval').value
+    });
+  });
+  return steps;
+}
+
+document.getElementById('autoForm').addEventListener('submit', function() {
+  document.getElementById('stepsJson').value = JSON.stringify(collectSteps());
+});
+
+// Start with one step
+addStep();
+</script>
+
+<%- include('../partials/footer') %>

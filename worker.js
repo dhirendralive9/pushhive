@@ -538,6 +538,21 @@ setInterval(checkRssFeeds, 60000);
 setTimeout(checkRssFeeds, 10000); // First run after 10s delay
 console.log(`[${WORKER_ID}] ✓ RSS feed poller started (checking every 60s)`);
 
+// ── Automation Step Processor ───────────────────────────────────
+const { processDueSteps } = require('./services/automations');
+
+async function processAutomations() {
+  try {
+    await processDueSteps();
+  } catch (err) {
+    console.error(`[${WORKER_ID}] Automation processing error:`, err.message);
+  }
+}
+// Check due automation steps every 30 seconds
+setInterval(processAutomations, 30000);
+setTimeout(processAutomations, 15000);
+console.log(`[${WORKER_ID}] ✓ Automation processor started (checking every 30s)`);
+
 // ── Start Webhook Delivery Worker ───────────────────────────────
 const webhookService = require('./services/webhooks');
 webhookService.startWorker();

@@ -397,6 +397,120 @@ router.get('/queue', async (req, res) => {
   }
 });
 
+// ── Automations (Drip Campaigns) ────────────────────────────────
+const Automation = require('../models/Automation');
+const AutomationEnrollment = require('../models/AutomationEnrollment');
+const { getAutomationStats } = require('../services/automations');
+
+router.get('/automations', async (req, res) => {
+  const sites = await Site.find().lean();
+  const automations = await Automation.find().sort({ createdAt: -1 }).populate('siteId', 'name').lean();
+  // Attach stats
+  for (const auto of automations) {
+    auto.enrollmentStats = await getAutomationStats(auto._id);
+  }
+  res.render('pages/automations', { automations, sites });
+});
+
+router.get('/automations/new', async (req, res) => {
+  const sites = await Site.find({ active: true }).lean();
+  res.render('pages/automation-new', { sites });
+});
+
+router.post('/automations', async (req, res) => {
+  try {
+    const { siteId, name, description, triggerType, triggerValue,
+      utmSource, utmMedium, utmCampaign, steps } = req.body;
+
+    let parsedSteps = [];
+    try {
+      parsedSteps = typeof steps === 'string' ? JSON.parse(steps) : (steps || []);
+    } catch (e) {
+      req.session.error = 'Invalid steps data';
+      return res.redirect('/dashboard/automations/new');
+    }
+
+    if (parsedSteps.length === 0) {
+      req.session.error = 'At least one step is required';
+      return res.redirect('/dashboard/automations/new');
+    }
+
+    const automation = new Automation({
+      siteId, name, description: description || '',
+      trigger: { type: triggerType || 'subscriber.new', value: triggerValue || '' },
+      utm: {
+        source: utmSource || 'pushhive',
+        medium: utmMedium || 'web_push',
+        campaign: utmCampaign || 'drip'
+      },
+      steps: parsedSteps.map((s, i) => ({
+        order: i + 1,
+        delayMinutes: parseInt(s.delayMinutes) || 0,
+        delayHours: parseInt(s.delayHours) || 0,
+        delayDays: parseInt(s.delayDays) || 0,
+        title: s.title,
+        body: s.body,
+        url: s.url,
+        icon: s.icon || '',
+        image: s.image || '',
+        condition: {
+          type: s.conditionType || 'none',
+          value: s.conditionValue || ''
+        }
+      })),
+      active: false
+    });
+
+    await automation.save();
+    req.session.success = `Automation "${name}" created with ${parsedSteps.length} steps. Activate it to start enrolling subscribers.`;
+    res.redirect('/dashboard/automations');
+  } catch (err) {
+    req.session.error = 'Failed to create automation: ' + err.message;
+    res.redirect('/dashboard/automations/new');
+  }
+});
+
+router.get('/automations/:id', async (req, res) => {
+  try {
+    const automation = await Automation.findById(req.params.id).populate('siteId', 'name domain').lean();
+    if (!automation) { req.session.error = 'Automation not found'; return res.redirect('/dashboard/automations'); }
+    const stats = await getAutomationStats(automation._id);
+    const recentEnrollments = await AutomationEnrollment.find({ automationId: automation._id })
+      .sort({ enrolledAt: -1 }).limit(20)
+      .populate('subscriberId', 'browser os device').lean();
+    res.render('pages/automation-detail', { automation, stats, recentEnrollments });
+  } catch (err) {
+    req.session.error = 'Failed to load automation';
+    res.redirect('/dashboard/automations');
+  }
+});
+
+router.post('/automations/:id/toggle', async (req, res) => {
+  try {
+    const automation = await Automation.findById(req.params.id);
+    if (!automation) { req.session.error = 'Not found'; return res.redirect('/dashboard/automations'); }
+    automation.active = !automation.active;
+    await automation.save();
+    req.session.success = `Automation ${automation.active ? 'activated' : 'paused'}`;
+    res.redirect('/dashboard/automations');
+  } catch (err) {
+    req.session.error = 'Failed to toggle';
+    res.redirect('/dashboard/automations');
+  }
+});
+
+router.post('/automations/:id/delete', async (req, res) => {
+  try {
+    await Automation.findByIdAndDelete(req.params.id);
+    await AutomationEnrollment.deleteMany({ automationId: req.params.id });
+    req.session.success = 'Automation deleted';
+    res.redirect('/dashboard/automations');
+  } catch (err) {
+    req.session.error = 'Failed to delete';
+    res.redirect('/dashboard/automations');
+  }
+});
+
 // ── Segments ────────────────────────────────────────────────────
 router.get('/segments', async (req, res) => {
   const sites = await Site.find().lean();
@@ -682,6 +796,150 @@ router.get('/api-docs', async (req, res) => {
   const serverUrl = `${req.protocol}://${req.get('host')}`;
   const sites = await Site.find({ active: true }).select('name domain apiKey').lean();
   res.render('pages/api-docs', { serverUrl, sites });
+});
+
+// ── Team Management ─────────────────────────────────────────────
+const { requireAdmin } = require('../middleware/roles');
+
+router.get('/team', requireAdmin, async (req, res) => {
+  const users = await Admin.find().sort({ createdAt: -1 }).lean();
+  const sites = await Site.find().lean();
+  res.render('pages/team', { users, sites, roleLabels: Admin.ROLE_LABELS, roleDescriptions: Admin.ROLE_DESCRIPTIONS });
+});
+
+router.post('/team/invite', requireAdmin, async (req, res) => {
+  try {
+    const { email, name, role, siteAccess } = req.body;
+
+    if (!email || !role) {
+      req.session.error = 'Email and role are required';
+      return res.redirect('/dashboard/team');
+    }
+
+    // Check if already exists
+    const existing = await Admin.findOne({ email: email.toLowerCase().trim() });
+    if (existing) {
+      req.session.error = `User with email ${email} already exists`;
+      return res.redirect('/dashboard/team');
+    }
+
+    // Prevent editors/viewers from inviting admins
+    if (['super', 'admin'].includes(role) && req.session.admin.role !== 'super') {
+      req.session.error = 'Only super admins can invite admins';
+      return res.redirect('/dashboard/team');
+    }
+
+    const admin = new Admin({
+      email: email.toLowerCase().trim(),
+      password: require('crypto').randomBytes(32).toString('hex'), // Temp password, will be set on invite accept
+      name: name || 'Invited User',
+      role,
+      siteAccess: siteAccess ? (Array.isArray(siteAccess) ? siteAccess : [siteAccess]) : [],
+      invitedBy: req.session.admin.id,
+      inviteAccepted: false
+    });
+
+    const token = admin.generateInviteToken();
+    await admin.save();
+
+    const inviteUrl = `${req.protocol}://${req.get('host')}/auth/invite/${token}`;
+
+    req.session.success = `Invitation created for ${email}. Share this link: ${inviteUrl}`;
+    res.redirect('/dashboard/team');
+  } catch (err) {
+    req.session.error = 'Failed to invite user: ' + err.message;
+    res.redirect('/dashboard/team');
+  }
+});
+
+router.post('/team/:id/role', requireAdmin, async (req, res) => {
+  try {
+    const { role } = req.body;
+    const target = await Admin.findById(req.params.id);
+    if (!target) { req.session.error = 'User not found'; return res.redirect('/dashboard/team'); }
+
+    // Cannot change super admin's role (unless you're super)
+    if (target.role === 'super' && req.session.admin.role !== 'super') {
+      req.session.error = 'Cannot modify super admin';
+      return res.redirect('/dashboard/team');
+    }
+
+    // Cannot promote to super unless you're super
+    if (role === 'super' && req.session.admin.role !== 'super') {
+      req.session.error = 'Only super admins can promote to super admin';
+      return res.redirect('/dashboard/team');
+    }
+
+    target.role = role;
+    await target.save();
+    req.session.success = `${target.name}'s role updated to ${Admin.ROLE_LABELS[role]}`;
+    res.redirect('/dashboard/team');
+  } catch (err) {
+    req.session.error = 'Failed to update role';
+    res.redirect('/dashboard/team');
+  }
+});
+
+router.post('/team/:id/toggle', requireAdmin, async (req, res) => {
+  try {
+    const target = await Admin.findById(req.params.id);
+    if (!target) { req.session.error = 'User not found'; return res.redirect('/dashboard/team'); }
+    if (target._id.toString() === req.session.admin.id) {
+      req.session.error = 'Cannot disable your own account';
+      return res.redirect('/dashboard/team');
+    }
+    if (target.role === 'super' && req.session.admin.role !== 'super') {
+      req.session.error = 'Cannot disable super admin';
+      return res.redirect('/dashboard/team');
+    }
+    target.active = !target.active;
+    await target.save();
+    req.session.success = `${target.name} ${target.active ? 'enabled' : 'disabled'}`;
+    res.redirect('/dashboard/team');
+  } catch (err) {
+    req.session.error = 'Failed to toggle user';
+    res.redirect('/dashboard/team');
+  }
+});
+
+router.post('/team/:id/delete', requireAdmin, async (req, res) => {
+  try {
+    const target = await Admin.findById(req.params.id);
+    if (!target) { req.session.error = 'User not found'; return res.redirect('/dashboard/team'); }
+    if (target._id.toString() === req.session.admin.id) {
+      req.session.error = 'Cannot delete your own account';
+      return res.redirect('/dashboard/team');
+    }
+    if (target.role === 'super') {
+      req.session.error = 'Cannot delete super admin';
+      return res.redirect('/dashboard/team');
+    }
+    await Admin.findByIdAndDelete(req.params.id);
+    req.session.success = `${target.name} deleted`;
+    res.redirect('/dashboard/team');
+  } catch (err) {
+    req.session.error = 'Failed to delete user';
+    res.redirect('/dashboard/team');
+  }
+});
+
+router.post('/team/:id/reinvite', requireAdmin, async (req, res) => {
+  try {
+    const target = await Admin.findById(req.params.id);
+    if (!target) { req.session.error = 'User not found'; return res.redirect('/dashboard/team'); }
+    if (target.inviteAccepted) {
+      req.session.error = 'User has already accepted their invitation';
+      return res.redirect('/dashboard/team');
+    }
+    const token = target.generateInviteToken();
+    await target.save();
+    const inviteUrl = `${req.protocol}://${req.get('host')}/auth/invite/${token}`;
+    req.session.success = `New invite link for ${target.email}: ${inviteUrl}`;
+    res.redirect('/dashboard/team');
+  } catch (err) {
+    req.session.error = 'Failed to resend invite';
+    res.redirect('/dashboard/team');
+  }
 });
 
 // ── Settings ────────────────────────────────────────────────────

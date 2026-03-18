@@ -53,6 +53,10 @@ app.use(session({
 // CSRF token generation for all dashboard pages
 app.use(generateCsrfToken);
 
+// Role-based helpers for templates
+const { roleHelpers } = require('./middleware/roles');
+app.use(roleHelpers);
+
 // Make session data + config available to all EJS views
 app.use((req, res, next) => {
   res.locals.admin = req.session.admin || null;

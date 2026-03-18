@@ -1,0 +1,51 @@
+<%- include('../partials/header', { pageTitle: 'Automations', activePage: 'automations' }) %>
+
+<div class="page-header">
+  <h1>Automations</h1>
+  <a href="/dashboard/automations/new" class="btn btn-primary">+ New Automation</a>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Your Automations (<%= automations.length %>)</span>
+  </div>
+  <% if (automations.length === 0) { %>
+    <p class="text-muted text-sm">No automations yet. Create a drip campaign to automatically send a sequence of notifications to new subscribers.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Site</th><th>Trigger</th><th>Steps</th><th>Enrolled</th><th>Completed</th><th>Status</th><th>Actions</th></tr></thead>
+      <tbody>
+        <% automations.forEach(function(a) { %>
+        <tr>
+          <td>
+            <a href="/dashboard/automations/<%= a._id %>" style="color:var(--primary-hover);text-decoration:none;font-weight:500;"><%= a.name %></a>
+            <% if (a.description) { %><div class="text-muted text-xs truncate" style="max-width:180px;"><%= a.description %></div><% } %>
+          </td>
+          <td class="text-muted"><%= a.siteId ? a.siteId.name : '—' %></td>
+          <td><span class="badge badge-primary" style="font-size:10px;"><%= a.trigger.type %></span></td>
+          <td><%= a.steps.length %></td>
+          <td><%= a.enrollmentStats ? a.enrollmentStats.total : a.totalEnrolled %></td>
+          <td><%= a.enrollmentStats ? a.enrollmentStats.completed : a.totalCompleted %></td>
+          <td>
+            <span class="badge badge-<%= a.active ? 'success' : 'warning' %>"><%= a.active ? 'Active' : 'Paused' %></span>
+          </td>
+          <td>
+            <div class="flex gap-8">
+              <form method="POST" action="/dashboard/automations/<%= a._id %>/toggle" style="display:inline;">
+                <button type="submit" class="btn btn-<%= a.active ? 'outline' : 'success' %> btn-sm"><%= a.active ? 'Pause' : 'Activate' %></button>
+              </form>
+              <form method="POST" action="/dashboard/automations/<%= a._id %>/delete" style="display:inline;">
+                <button type="submit" class="btn btn-danger btn-sm" data-confirm="Delete this automation and all enrollments?">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>

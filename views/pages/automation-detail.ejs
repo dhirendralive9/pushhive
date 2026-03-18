@@ -1,0 +1,136 @@
+<%- include('../partials/header', { pageTitle: automation.name, activePage: 'automations' }) %>
+
+<div class="page-header">
+  <h1><%= automation.name %></h1>
+  <div class="flex gap-8">
+    <a href="/dashboard/automations" class="btn btn-outline">&larr; Back</a>
+    <form method="POST" action="/dashboard/automations/<%= automation._id %>/toggle" style="display:inline;">
+      <button type="submit" class="btn btn-<%= automation.active ? 'outline' : 'success' %> btn-sm"><%= automation.active ? 'Pause' : 'Activate' %></button>
+    </form>
+    <form method="POST" action="/dashboard/automations/<%= automation._id %>/delete" style="display:inline;">
+      <button type="submit" class="btn btn-danger btn-sm" data-confirm="Delete this automation?">Delete</button>
+    </form>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Status</div>
+    <div class="stat-value" style="font-size:18px;color:<%= automation.active ? 'var(--success)' : 'var(--warning)' %>"><%= automation.active ? 'Active' : 'Paused' %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">In Progress</div>
+    <div class="stat-value primary"><%= stats.active %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Completed</div>
+    <div class="stat-value success"><%= stats.completed %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Cancelled</div>
+    <div class="stat-value" style="color:var(--danger)"><%= stats.cancelled %></div>
+  </div>
+</div>
+
+<!-- Config -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+  <div class="card">
+    <div class="card-header"><span class="card-title">Configuration</span></div>
+    <table>
+      <tr><td class="text-muted" style="width:100px;">Trigger</td><td><span class="badge badge-primary"><%= automation.trigger.type %></span> <%= automation.trigger.value ? '(' + automation.trigger.value + ')' : '' %></td></tr>
+      <tr><td class="text-muted">Site</td><td><%= automation.siteId ? automation.siteId.name : '—' %></td></tr>
+      <tr><td class="text-muted">Steps</td><td><%= automation.steps.length %></td></tr>
+      <tr><td class="text-muted">UTM</td><td><code><%= automation.utm.source %>/<%= automation.utm.medium %>/<%= automation.utm.campaign %></code></td></tr>
+      <tr><td class="text-muted">Created</td><td class="text-sm"><%= new Date(automation.createdAt).toLocaleString() %></td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><span class="card-title">Funnel</span></div>
+    <% var maxSent = Math.max(...automation.steps.map(function(s) { return s.stats.sent || 1; })); %>
+    <% automation.steps.forEach(function(step, i) {
+      var pct = maxSent > 0 ? Math.round((step.stats.sent / maxSent) * 100) : 0;
+      var ctr = step.stats.sent > 0 ? ((step.stats.clicked / step.stats.sent) * 100).toFixed(1) : '0.0';
+    %>
+    <div style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+        <span class="text-sm"><strong>Step <%= step.order %></strong> — <%= step.title %></span>
+        <span class="text-xs text-muted"><%= step.stats.sent %> sent, <%= ctr %>% CTR</span>
+      </div>
+      <div style="height:6px;background:var(--bg-card);border-radius:3px;overflow:hidden;">
+        <div style="width:<%= pct %>%;height:100%;background:var(--primary);border-radius:3px;"></div>
+      </div>
+      <% if (step.stats.skipped > 0) { %>
+      <span class="text-xs text-muted"><%= step.stats.skipped %> skipped (condition not met)</span>
+      <% } %>
+    </div>
+    <% }) %>
+  </div>
+</div>
+
+<!-- Steps Detail -->
+<div class="card mt-24">
+  <div class="card-header"><span class="card-title">Steps (<%= automation.steps.length %>)</span></div>
+  <% automation.steps.forEach(function(step, i) {
+    var delay = [];
+    if (step.delayDays > 0) delay.push(step.delayDays + 'd');
+    if (step.delayHours > 0) delay.push(step.delayHours + 'h');
+    if (step.delayMinutes > 0) delay.push(step.delayMinutes + 'm');
+    var delayStr = delay.length > 0 ? delay.join(' ') : 'Immediately';
+  %>
+  <% if (i > 0) { %>
+  <div style="text-align:center;padding:8px 0;color:var(--text-dim);">
+    &#8595; Wait <%= delayStr %>
+  </div>
+  <% } %>
+  <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:16px;margin-bottom:4px;">
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+      <span style="font-size:14px;font-weight:600;color:#fff;">Step <%= step.order %>: <%= step.title %></span>
+      <div class="flex gap-8">
+        <span class="badge badge-primary"><%= step.stats.sent %> sent</span>
+        <span class="badge badge-success"><%= step.stats.clicked %> clicked</span>
+      </div>
+    </div>
+    <p class="text-sm text-muted" style="margin-bottom:4px;"><%= step.body %></p>
+    <p class="text-xs text-muted">URL: <a href="<%= step.url %>" style="color:var(--primary-hover)" target="_blank"><%= step.url %></a></p>
+    <% if (step.condition && step.condition.type !== 'none') { %>
+    <p class="text-xs mt-4" style="color:var(--warning);">Condition: <%= step.condition.type.replace(/_/g, ' ') %><%= step.condition.value ? ' (' + step.condition.value + ')' : '' %></p>
+    <% } %>
+    <% if (i === 0) { %>
+    <p class="text-xs text-muted mt-4">Delay: <%= delayStr %> after trigger</p>
+    <% } %>
+  </div>
+  <% }) %>
+</div>
+
+<!-- Recent Enrollments -->
+<div class="card mt-24">
+  <div class="card-header"><span class="card-title">Recent Enrollments (last 20)</span></div>
+  <% if (recentEnrollments.length === 0) { %>
+    <p class="text-muted text-sm">No enrollments yet. <% if (!automation.active) { %>Activate the automation to start enrolling subscribers.<% } %></p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Subscriber</th><th>Step</th><th>Status</th><th>Next Step At</th><th>Enrolled</th></tr></thead>
+      <tbody>
+        <% recentEnrollments.forEach(function(e) { %>
+        <tr>
+          <td class="text-sm">
+            <%= e.subscriberId ? (e.subscriberId.browser + ' / ' + e.subscriberId.os + ' / ' + e.subscriberId.device) : e.subscriberId %>
+          </td>
+          <td><%= e.currentStep + 1 %>/<%= automation.steps.length %></td>
+          <td>
+            <span class="badge badge-<%= e.status === 'active' ? 'warning' : e.status === 'completed' ? 'success' : 'danger' %>"><%= e.status %></span>
+          </td>
+          <td class="text-muted text-xs"><%= e.nextStepAt ? new Date(e.nextStepAt).toLocaleString() : '—' %></td>
+          <td class="text-muted text-xs"><%= new Date(e.enrolledAt).toLocaleString() %></td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>

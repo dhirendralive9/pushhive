@@ -76,6 +76,10 @@ router.post('/subscribe', requireApiKey, async (req, res) => {
       siteId: req.site._id
     }).catch(() => {});
 
+    // Enroll in automations
+    const { enrollSubscriber } = require('../services/automations');
+    enrollSubscriber('subscriber.new', req.site._id, subscriber._id).catch(() => {});
+
     res.json({ success: true, subscriberId: subscriber._id });
   } catch (err) {
     console.error('Subscribe error:', err);

@@ -77,6 +77,63 @@ router.post('/login',
   }
 );
 
+// GET /auth/invite/:token — accept invitation
+router.get('/invite/:token', async (req, res) => {
+  try {
+    const admin = await Admin.findOne({
+      inviteToken: req.params.token,
+      inviteExpires: { $gt: new Date() },
+      inviteAccepted: false
+    });
+    if (!admin) {
+      return res.render('pages/invite', { error: 'Invalid or expired invitation link', token: null });
+    }
+    res.render('pages/invite', { error: null, token: req.params.token, email: admin.email, name: admin.name });
+  } catch (err) {
+    res.render('pages/invite', { error: 'Something went wrong', token: null });
+  }
+});
+
+// POST /auth/invite/:token — set password and activate account
+router.post('/invite/:token', async (req, res) => {
+  try {
+    const { name, password, confirmPassword } = req.body;
+    if (!password || password.length < 6) {
+      return res.render('pages/invite', { error: 'Password must be at least 6 characters', token: req.params.token, email: '', name: name || '' });
+    }
+    if (password !== confirmPassword) {
+      return res.render('pages/invite', { error: 'Passwords do not match', token: req.params.token, email: '', name: name || '' });
+    }
+
+    const admin = await Admin.findOne({
+      inviteToken: req.params.token,
+      inviteExpires: { $gt: new Date() },
+      inviteAccepted: false
+    });
+    if (!admin) {
+      return res.render('pages/invite', { error: 'Invalid or expired invitation link', token: null });
+    }
+
+    admin.name = name || admin.name;
+    admin.password = password;
+    admin.inviteAccepted = true;
+    admin.inviteToken = undefined;
+    admin.inviteExpires = undefined;
+    await admin.save();
+
+    // Auto-login
+    req.session.admin = {
+      id: admin._id,
+      email: admin.email,
+      name: admin.name,
+      role: admin.role
+    };
+    res.redirect('/dashboard');
+  } catch (err) {
+    res.render('pages/invite', { error: 'Failed to set up account: ' + err.message, token: req.params.token });
+  }
+});
+
 // GET /auth/logout
 router.get('/logout', (req, res) => {
   req.session.destroy((err) => {

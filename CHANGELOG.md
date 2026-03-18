@@ -2,6 +2,55 @@
 
 All notable changes to PushHive will be documented in this file.
 
+## [2.7.0] - 2026-03-18
+
+### Added
+- **Automation / Drip Campaigns** — create multi-step notification sequences triggered automatically
+  - 3 trigger types: new subscriber, tag added, manual enrollment
+  - Step builder UI: add unlimited steps with configurable delays (days/hours/minutes)
+  - Per-step conditions: only if clicked previous, only if NOT clicked previous, has tag, doesn't have tag
+  - Steps skipped when conditions not met (counted separately in stats)
+  - Enrollment tracking: each subscriber's progress through the automation is tracked individually
+  - Funnel visualization on automation detail page showing drop-off between steps
+  - Per-step stats: sent, clicked, skipped with CTR calculation
+  - Enrollment list showing current step, status, and next scheduled send
+  - Activate/pause automations — pausing stops new enrollments, existing ones continue
+  - Auto-cancels enrollments when subscriber becomes inactive (unsubscribed/expired)
+  - Worker processes due automation steps every 30 seconds
+  - UTM parameters per automation
+  - Dashboard pages: list, create (step builder), detail (funnel + enrollments)
+  - Automations nav item in sidebar (visible to editors+)
+
+### Changed
+- Subscribe API now enrolls new subscribers into matching active automations
+- Worker process includes automation step processor alongside campaign scheduler and RSS poller
+
+## [2.6.0] - 2026-03-18
+
+### Added
+- **Multi-user with roles** — invite team members with granular permissions
+  - 4 roles: Super Admin, Admin, Editor, Viewer
+    - **Super Admin**: Full access, can manage other admins, cannot be deleted
+    - **Admin**: Full access, can manage users/sites/settings
+    - **Editor**: Can create/send campaigns, manage segments, view analytics
+    - **Viewer**: Read-only access to analytics and campaign results
+  - Invitation system: generate invite links (valid 7 days), invitee sets their own password
+  - Resend invite links for pending invitations
+  - Change roles inline from team management page (dropdown auto-submits)
+  - Enable/disable user accounts without deleting them
+  - Site-level access control: restrict editors/viewers to specific sites
+  - Protection: cannot delete own account, cannot delete super admin, cannot promote to super unless you are super
+  - Team management page with role descriptions, member list, and actions
+  - Role-based sidebar: nav items hidden based on permissions (e.g., viewers don't see Sites, Queue, Webhooks, RSS)
+  - Role-based access control middleware (`middleware/roles.js`) with `requirePermission()`, `requireAdmin()`, and `roleHelpers()`
+  - Role info available in all templates via `canManageUsers`, `canCreateCampaigns`, etc.
+
+### Changed
+- Admin model expanded: added `siteAccess`, `invitedBy`, `inviteToken`, `inviteExpires`, `inviteAccepted`, `active` fields
+- Admin model now includes `can(permission)` and `hasAccessToSite(siteId)` methods
+- Session stores role for template-level permission checks
+- Auth routes: added `/auth/invite/:token` GET and POST for invite acceptance
+
 ## [2.5.0] - 2026-03-18
 
 ### Added

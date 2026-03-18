@@ -1,0 +1,141 @@
+<%- include('../partials/header', { pageTitle: 'Team', activePage: 'team' }) %>
+
+<div class="page-header">
+  <h1>Team</h1>
+</div>
+
+<!-- Invite User -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Invite Team Member</span>
+  </div>
+  <form method="POST" action="/dashboard/team/invite">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" name="email" class="form-input" placeholder="colleague@company.com" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input type="text" name="name" class="form-input" placeholder="John Doe">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Role</label>
+        <select name="role" class="form-select" id="inviteRole" onchange="toggleSiteAccess()">
+          <% if (admin.role === 'super') { %>
+          <option value="admin">Admin — Full access, can manage users</option>
+          <% } %>
+          <option value="editor" selected>Editor — Create/send campaigns, view analytics</option>
+          <option value="viewer">Viewer — Read-only analytics</option>
+        </select>
+      </div>
+      <div class="form-group" id="siteAccessGroup">
+        <label class="form-label">Site Access <span class="text-muted text-xs">(editors/viewers only)</span></label>
+        <select name="siteAccess" class="form-select" multiple size="3" style="min-height:80px;">
+          <% sites.forEach(function(s) { %>
+          <option value="<%= s._id %>"><%= s.name %></option>
+          <% }) %>
+        </select>
+        <p class="form-help">Hold Ctrl/Cmd to select multiple. Leave empty for all sites.</p>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Send Invitation</button>
+  </form>
+</div>
+
+<!-- Role Descriptions -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Roles</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+    <% Object.entries(roleLabels).forEach(function([key, label]) { %>
+    <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:6px;padding:12px;">
+      <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:4px;"><%= label %></div>
+      <div class="text-xs text-muted"><%= roleDescriptions[key] %></div>
+    </div>
+    <% }) %>
+  </div>
+</div>
+
+<!-- Team Members -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Team Members (<%= users.length %>)</span>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+      <tbody>
+        <% users.forEach(function(u) {
+          var isSelf = u._id.toString() === admin.id.toString();
+          var isSuper = u.role === 'super';
+        %>
+        <tr>
+          <td>
+            <strong><%= u.name %></strong>
+            <% if (isSelf) { %><span class="badge badge-primary" style="font-size:9px;margin-left:4px;">You</span><% } %>
+          </td>
+          <td class="text-muted text-sm"><%= u.email %></td>
+          <td>
+            <% if (!isSelf && !isSuper && admin.role === 'super') { %>
+            <form method="POST" action="/dashboard/team/<%= u._id %>/role" style="display:inline;">
+              <select name="role" class="form-select" style="font-size:12px;padding:4px 8px;width:auto;" onchange="this.form.submit()">
+                <option value="admin" <%= u.role === 'admin' ? 'selected' : '' %>>Admin</option>
+                <option value="editor" <%= u.role === 'editor' ? 'selected' : '' %>>Editor</option>
+                <option value="viewer" <%= u.role === 'viewer' ? 'selected' : '' %>>Viewer</option>
+              </select>
+            </form>
+            <% } else { %>
+            <span class="badge badge-<%= u.role === 'super' ? 'primary' : u.role === 'admin' ? 'success' : u.role === 'editor' ? 'warning' : 'primary' %>"><%= roleLabels[u.role] %></span>
+            <% } %>
+          </td>
+          <td>
+            <% if (!u.inviteAccepted && u.inviteToken) { %>
+              <span class="badge badge-warning">Pending invite</span>
+            <% } else if (u.active) { %>
+              <span class="badge badge-success">Active</span>
+            <% } else { %>
+              <span class="badge badge-danger">Disabled</span>
+            <% } %>
+          </td>
+          <td class="text-muted text-xs"><%= u.lastLogin ? new Date(u.lastLogin).toLocaleString() : 'Never' %></td>
+          <td>
+            <% if (!isSelf) { %>
+            <div class="flex gap-8">
+              <% if (!u.inviteAccepted && u.inviteToken) { %>
+              <form method="POST" action="/dashboard/team/<%= u._id %>/reinvite" style="display:inline;">
+                <button type="submit" class="btn btn-outline btn-sm">Resend Invite</button>
+              </form>
+              <% } %>
+              <% if (!isSuper || admin.role === 'super') { %>
+              <form method="POST" action="/dashboard/team/<%= u._id %>/toggle" style="display:inline;">
+                <button type="submit" class="btn btn-outline btn-sm"><%= u.active ? 'Disable' : 'Enable' %></button>
+              </form>
+              <% } %>
+              <% if (!isSuper) { %>
+              <form method="POST" action="/dashboard/team/<%= u._id %>/delete" style="display:inline;">
+                <button type="submit" class="btn btn-danger btn-sm" data-confirm="Delete <%= u.name %>? This cannot be undone.">Delete</button>
+              </form>
+              <% } %>
+            </div>
+            <% } %>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function toggleSiteAccess() {
+  var role = document.getElementById('inviteRole').value;
+  document.getElementById('siteAccessGroup').style.display = (role === 'editor' || role === 'viewer') ? 'block' : 'none';
+}
+toggleSiteAccess();
+</script>
+
+<%- include('../partials/footer') %>
