@@ -509,6 +509,24 @@ async function checkScheduledCampaigns() {
 setInterval(checkScheduledCampaigns, 30000);
 checkScheduledCampaigns();
 
+// ── RSS Feed Poller ─────────────────────────────────────────────
+const { pollAllFeeds } = require('./services/rss');
+
+async function checkRssFeeds() {
+  try {
+    const result = await pollAllFeeds();
+    if (result.polled > 0) {
+      console.log(`[${WORKER_ID}] RSS: polled ${result.polled}/${result.totalFeeds} feeds`);
+    }
+  } catch (err) {
+    console.error(`[${WORKER_ID}] RSS poll error:`, err.message);
+  }
+}
+// Check RSS feeds every 60 seconds
+setInterval(checkRssFeeds, 60000);
+setTimeout(checkRssFeeds, 10000); // First run after 10s delay
+console.log(`[${WORKER_ID}] ✓ RSS feed poller started (checking every 60s)`);
+
 // ── Start Webhook Delivery Worker ───────────────────────────────
 const webhookService = require('./services/webhooks');
 webhookService.startWorker();

@@ -2,6 +2,30 @@
 
 All notable changes to PushHive will be documented in this file.
 
+## [2.4.0] - 2026-03-18
+
+### Added
+- **RSS-to-Push** — automatically send push notifications when RSS/Atom feeds publish new content
+  - Supports both RSS 2.0 and Atom feed formats
+  - Zero-dependency XML parser (no external libraries)
+  - Configurable poll intervals (5 min to 24 hours)
+  - Notification template system: use RSS title/description or set custom text, optional title prefix
+  - Auto-extract images from `media:content`, `media:thumbnail`, `enclosure`, or `<img>` tags
+  - UTM parameters per feed for analytics tracking
+  - Target all subscribers or specific tags per feed
+  - First poll establishes baseline — doesn't spam all existing items
+  - Max 3 new items per poll to prevent notification flooding
+  - Auto-disable after 20 consecutive poll failures
+  - Manual "Poll Now" button for instant testing
+  - Feed validation on creation (checks URL, parses items, shows latest title)
+  - Feed detail page with configuration view and recent auto-created campaigns
+  - Dashboard pages for managing feeds (add, toggle, delete, view)
+  - RSS nav item in sidebar
+
+### Changed
+- Worker process now includes RSS feed poller (checks every 60 seconds)
+- Version bumped to 2.4.0
+
 ## [2.0.0] - 2026-03-18
 
 ### Added

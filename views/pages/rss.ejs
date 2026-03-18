@@ -1,0 +1,158 @@
+<%- include('../partials/header', { pageTitle: 'RSS Feeds', activePage: 'rss' }) %>
+
+<div class="page-header">
+  <h1>RSS-to-Push</h1>
+</div>
+
+<!-- Add Feed -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Add RSS Feed</span>
+  </div>
+  <form method="POST" action="/dashboard/rss">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Feed Name</label>
+        <input type="text" name="name" class="form-input" placeholder="Company Blog" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Site</label>
+        <select name="siteId" class="form-select" required>
+          <% sites.forEach(function(s) { %>
+          <option value="<%= s._id %>"><%= s.name %></option>
+          <% }) %>
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Feed URL</label>
+      <input type="url" name="feedUrl" class="form-input" placeholder="https://example.com/feed.xml" required>
+      <p class="form-help">RSS 2.0 or Atom feed. Will be validated before saving.</p>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Poll Interval (minutes)</label>
+      <select name="pollInterval" class="form-select" style="max-width:200px;">
+        <option value="5">Every 5 minutes</option>
+        <option value="10" selected>Every 10 minutes</option>
+        <option value="15">Every 15 minutes</option>
+        <option value="30">Every 30 minutes</option>
+        <option value="60">Every hour</option>
+        <option value="360">Every 6 hours</option>
+        <option value="720">Every 12 hours</option>
+        <option value="1440">Every 24 hours</option>
+      </select>
+    </div>
+
+    <h3 style="font-size:15px;font-weight:600;color:#fff;margin:20px 0 12px;">Notification Template</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Title</label>
+        <select name="titleField" class="form-select" onchange="document.getElementById('customTitleWrap').style.display=this.value==='custom'?'block':'none'">
+          <option value="title" selected>Use RSS item title</option>
+          <option value="custom">Custom title</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Title Prefix (optional)</label>
+        <input type="text" name="titlePrefix" class="form-input" placeholder="New: ">
+        <p class="form-help">Prepended to the title, e.g. "New: My Blog Post"</p>
+      </div>
+    </div>
+    <div class="form-group" id="customTitleWrap" style="display:none;">
+      <label class="form-label">Custom Title</label>
+      <input type="text" name="customTitle" class="form-input" placeholder="We just published something new!">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Body</label>
+        <select name="bodyField" class="form-select" onchange="document.getElementById('customBodyWrap').style.display=this.value==='custom'?'block':'none'">
+          <option value="description" selected>Use RSS item description</option>
+          <option value="custom">Custom body</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Icon URL (optional)</label>
+        <input type="url" name="icon" class="form-input" placeholder="https://example.com/icon.png">
+      </div>
+    </div>
+    <div class="form-group" id="customBodyWrap" style="display:none;">
+      <label class="form-label">Custom Body</label>
+      <textarea name="customBody" class="form-textarea" placeholder="Check out our latest article"></textarea>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" name="extractImage" checked>
+        <span class="form-label" style="margin:0;">Auto-extract image from RSS content</span>
+      </label>
+    </div>
+
+    <h3 style="font-size:15px;font-weight:600;color:#fff;margin:20px 0 12px;">UTM Parameters</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">utm_source</label>
+        <input type="text" name="utmSource" class="form-input" value="pushhive">
+      </div>
+      <div class="form-group">
+        <label class="form-label">utm_medium</label>
+        <input type="text" name="utmMedium" class="form-input" value="web_push">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">utm_campaign</label>
+      <input type="text" name="utmCampaign" class="form-input" value="rss_auto">
+    </div>
+
+    <button type="submit" class="btn btn-primary">Add Feed</button>
+  </form>
+</div>
+
+<!-- Feeds List -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Your Feeds (<%= feeds.length %>)</span>
+  </div>
+  <% if (feeds.length === 0) { %>
+    <p class="text-muted text-sm">No RSS feeds configured. Add one above to automatically send push notifications when new content is published.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Site</th><th>Interval</th><th>Sent</th><th>Status</th><th>Last Polled</th><th>Actions</th></tr></thead>
+      <tbody>
+        <% feeds.forEach(function(f) { %>
+        <tr>
+          <td>
+            <a href="/dashboard/rss/<%= f._id %>" style="color:var(--primary-hover);text-decoration:none;font-weight:500;"><%= f.name %></a>
+            <div class="text-muted text-xs truncate" style="max-width:200px;"><%= f.feedUrl %></div>
+          </td>
+          <td class="text-muted"><%= f.siteId ? f.siteId.name : '—' %></td>
+          <td class="text-muted text-sm"><%= f.pollInterval %> min</td>
+          <td><%= f.totalSent %></td>
+          <td>
+            <% if (f.autoDisabled) { %>
+              <span class="badge badge-danger">Auto-disabled</span>
+            <% } else if (f.active) { %>
+              <span class="badge badge-success">Active</span>
+            <% } else { %>
+              <span class="badge badge-warning">Disabled</span>
+            <% } %>
+          </td>
+          <td class="text-muted text-xs"><%= f.lastPolledAt ? new Date(f.lastPolledAt).toLocaleString() : 'Never' %></td>
+          <td>
+            <div class="flex gap-8">
+              <form method="POST" action="/dashboard/rss/<%= f._id %>/toggle" style="display:inline;">
+                <button type="submit" class="btn btn-outline btn-sm"><%= f.active ? 'Disable' : 'Enable' %></button>
+              </form>
+              <form method="POST" action="/dashboard/rss/<%= f._id %>/delete" style="display:inline;">
+                <button type="submit" class="btn btn-danger btn-sm" data-confirm="Delete this feed?">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>

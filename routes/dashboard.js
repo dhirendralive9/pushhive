@@ -9,6 +9,7 @@ const Event = require('../models/Event');
 const Admin = require('../models/Admin');
 const Webhook = require('../models/Webhook');
 const WebhookLog = require('../models/WebhookLog');
+const RssFeed = require('../models/RssFeed');
 const webpush = require('web-push');
 
 // Apply auth middleware to all dashboard routes
@@ -390,6 +391,114 @@ router.get('/queue', async (req, res) => {
   } catch (err) {
     console.error('Queue status error:', err);
     res.render('pages/queue', { queueStats: {}, activeCampaigns: [], queueError: err.message });
+  }
+});
+
+// ── RSS Feeds ───────────────────────────────────────────────────
+router.get('/rss', async (req, res) => {
+  const sites = await Site.find().lean();
+  const feeds = await RssFeed.find().sort({ createdAt: -1 }).populate('siteId', 'name').lean();
+  res.render('pages/rss', { feeds, sites });
+});
+
+router.post('/rss', async (req, res) => {
+  try {
+    const { siteId, name, feedUrl, pollInterval, titlePrefix, titleField, customTitle,
+      bodyField, customBody, icon, extractImage, utmSource, utmMedium, utmCampaign,
+      targetAll, targetTags } = req.body;
+
+    // Validate feed first
+    const { validateFeed } = require('../services/rss');
+    const validation = await validateFeed(feedUrl);
+    if (!validation.valid) {
+      req.session.error = `Invalid feed: ${validation.error}`;
+      return res.redirect('/dashboard/rss');
+    }
+
+    const feed = new RssFeed({
+      siteId, name, feedUrl,
+      pollInterval: parseInt(pollInterval) || 10,
+      template: {
+        titlePrefix: titlePrefix || '',
+        titleField: titleField || 'title',
+        customTitle: customTitle || '',
+        bodyField: bodyField || 'description',
+        customBody: customBody || '',
+        icon: icon || '',
+        extractImage: extractImage === 'on'
+      },
+      utm: {
+        source: utmSource || 'pushhive',
+        medium: utmMedium || 'web_push',
+        campaign: utmCampaign || 'rss_auto'
+      },
+      targetAll: targetAll !== 'false',
+      targetTags: targetTags ? targetTags.split(',').map(t => t.trim()) : []
+    });
+
+    await feed.save();
+    req.session.success = `RSS feed "${name}" added. Found ${validation.itemCount} items — latest: "${validation.latestTitle}"`;
+    res.redirect('/dashboard/rss');
+  } catch (err) {
+    req.session.error = 'Failed to add feed: ' + err.message;
+    res.redirect('/dashboard/rss');
+  }
+});
+
+router.get('/rss/:id', async (req, res) => {
+  try {
+    const feed = await RssFeed.findById(req.params.id).populate('siteId', 'name domain').lean();
+    if (!feed) { req.session.error = 'Feed not found'; return res.redirect('/dashboard/rss'); }
+    const campaigns = await Campaign.find({ _id: { $in: feed.campaignIds || [] } })
+      .sort({ createdAt: -1 }).limit(20).lean();
+    res.render('pages/rss-detail', { feed, campaigns });
+  } catch (err) {
+    req.session.error = 'Failed to load feed';
+    res.redirect('/dashboard/rss');
+  }
+});
+
+router.post('/rss/:id/toggle', async (req, res) => {
+  try {
+    const feed = await RssFeed.findById(req.params.id);
+    if (!feed) { req.session.error = 'Feed not found'; return res.redirect('/dashboard/rss'); }
+    feed.active = !feed.active;
+    if (feed.active) { feed.autoDisabled = false; feed.errorCount = 0; }
+    await feed.save();
+    req.session.success = `Feed ${feed.active ? 'enabled' : 'disabled'}`;
+    res.redirect('/dashboard/rss');
+  } catch (err) {
+    req.session.error = 'Failed to toggle feed';
+    res.redirect('/dashboard/rss');
+  }
+});
+
+router.post('/rss/:id/poll', async (req, res) => {
+  try {
+    const feed = await RssFeed.findById(req.params.id);
+    if (!feed) { req.session.error = 'Feed not found'; return res.redirect('/dashboard/rss'); }
+    const { pollFeed } = require('../services/rss');
+    const result = await pollFeed(feed);
+    if (result.error) {
+      req.session.error = `Poll failed: ${result.error}`;
+    } else {
+      req.session.success = `Polled "${feed.name}": ${result.newItems} new items${result.campaigns ? ', ' + result.campaigns + ' campaigns created' : ''}`;
+    }
+    res.redirect(`/dashboard/rss/${feed._id}`);
+  } catch (err) {
+    req.session.error = 'Poll failed: ' + err.message;
+    res.redirect('/dashboard/rss');
+  }
+});
+
+router.post('/rss/:id/delete', async (req, res) => {
+  try {
+    await RssFeed.findByIdAndDelete(req.params.id);
+    req.session.success = 'Feed deleted';
+    res.redirect('/dashboard/rss');
+  } catch (err) {
+    req.session.error = 'Failed to delete feed';
+    res.redirect('/dashboard/rss');
   }
 });
 

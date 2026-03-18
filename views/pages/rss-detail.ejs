@@ -1,0 +1,115 @@
+<%- include('../partials/header', { pageTitle: feed.name, activePage: 'rss' }) %>
+
+<div class="page-header">
+  <h1><%= feed.name %></h1>
+  <div class="flex gap-8">
+    <a href="/dashboard/rss" class="btn btn-outline">&larr; Back</a>
+    <form method="POST" action="/dashboard/rss/<%= feed._id %>/poll" style="display:inline;">
+      <button type="submit" class="btn btn-primary btn-sm">Poll Now</button>
+    </form>
+    <form method="POST" action="/dashboard/rss/<%= feed._id %>/toggle" style="display:inline;">
+      <button type="submit" class="btn btn-outline btn-sm"><%= feed.active ? 'Disable' : 'Enable' %></button>
+    </form>
+    <form method="POST" action="/dashboard/rss/<%= feed._id %>/delete" style="display:inline;">
+      <button type="submit" class="btn btn-danger btn-sm" data-confirm="Delete this feed?">Delete</button>
+    </form>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Status</div>
+    <div class="stat-value" style="font-size:18px;">
+      <% if (feed.autoDisabled) { %>
+        <span style="color:var(--danger)">Auto-disabled</span>
+      <% } else if (feed.active) { %>
+        <span style="color:var(--success)">Active</span>
+      <% } else { %>
+        <span style="color:var(--warning)">Disabled</span>
+      <% } %>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Campaigns Sent</div>
+    <div class="stat-value primary"><%= feed.totalSent %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Poll Interval</div>
+    <div class="stat-value"><%= feed.pollInterval %> min</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Errors</div>
+    <div class="stat-value" style="color:var(--danger)"><%= feed.errorCount %></div>
+  </div>
+</div>
+
+<!-- Config -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Feed Configuration</span>
+    </div>
+    <table>
+      <tr><td class="text-muted" style="width:120px;">Feed URL</td><td class="text-sm" style="word-break:break-all;"><a href="<%= feed.feedUrl %>" target="_blank" style="color:var(--primary-hover)"><%= feed.feedUrl %></a></td></tr>
+      <tr><td class="text-muted">Site</td><td><%= feed.siteId ? feed.siteId.name : '—' %></td></tr>
+      <tr><td class="text-muted">Last polled</td><td class="text-sm"><%= feed.lastPolledAt ? new Date(feed.lastPolledAt).toLocaleString() : 'Never' %></td></tr>
+      <tr><td class="text-muted">Last item</td><td class="text-sm truncate" style="max-width:250px;"><%= feed.lastItemGuid || '—' %></td></tr>
+      <% if (feed.lastError) { %>
+      <tr><td class="text-muted">Last error</td><td class="text-sm" style="color:var(--danger);"><%= feed.lastError %></td></tr>
+      <% } %>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Notification Template</span>
+    </div>
+    <table>
+      <tr><td class="text-muted" style="width:120px;">Title</td><td class="text-sm">
+        <%= feed.template.titleField === 'custom' ? feed.template.customTitle : (feed.template.titlePrefix || '') + '{RSS title}' %>
+      </td></tr>
+      <tr><td class="text-muted">Body</td><td class="text-sm">
+        <%= feed.template.bodyField === 'custom' ? feed.template.customBody : '{RSS description}' %>
+      </td></tr>
+      <tr><td class="text-muted">Icon</td><td class="text-sm"><%= feed.template.icon || 'Site default' %></td></tr>
+      <tr><td class="text-muted">Image</td><td class="text-sm"><%= feed.template.extractImage ? 'Auto-extract from content' : (feed.template.image || 'None') %></td></tr>
+      <tr><td class="text-muted">UTM</td><td class="text-sm"><code><%= feed.utm.source %>/<%= feed.utm.medium %>/<%= feed.utm.campaign %></code></td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- Recent Auto-Campaigns -->
+<div class="card mt-24">
+  <div class="card-header">
+    <span class="card-title">Recent Auto-Campaigns (<%= campaigns.length %>)</span>
+  </div>
+  <% if (campaigns.length === 0) { %>
+    <p class="text-muted text-sm">No campaigns created from this feed yet. New campaigns will appear here when the feed publishes new content.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Title</th><th>URL</th><th>Sent</th><th>Clicked</th><th>CTR</th><th>Status</th><th>Date</th></tr></thead>
+      <tbody>
+        <% campaigns.forEach(function(c) { %>
+        <tr>
+          <td>
+            <a href="/dashboard/campaigns/<%= c._id %>" style="color:var(--primary-hover);text-decoration:none;font-weight:500;">
+              <%= c.title %>
+            </a>
+          </td>
+          <td class="text-muted text-xs truncate" style="max-width:180px;"><%= c.url %></td>
+          <td><%= c.stats.sent %></td>
+          <td><%= c.stats.clicked %></td>
+          <td><%= c.stats.sent > 0 ? ((c.stats.clicked / c.stats.sent) * 100).toFixed(1) + '%' : '—' %></td>
+          <td><span class="badge badge-<%= c.status === 'sent' ? 'success' : c.status === 'failed' ? 'danger' : 'warning' %>"><%= c.status %></span></td>
+          <td class="text-muted text-xs"><%= new Date(c.createdAt).toLocaleString() %></td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>
