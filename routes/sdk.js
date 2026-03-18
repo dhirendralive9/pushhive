@@ -143,13 +143,19 @@ function generateSDK(serverUrl) {
     },
 
     checkSubscription: function(registration) {
+      console.log('[PushHive] Checking existing subscription...');
       registration.pushManager.getSubscription()
         .then(function(subscription) {
           if (subscription) {
+            console.log('[PushHive] Already subscribed, updating server');
             PushHive.sendSubscription(subscription);
           } else {
+            console.log('[PushHive] Not subscribed, will show prompt');
             PushHive.showPrompt(registration);
           }
+        })
+        .catch(function(err) {
+          console.error('[PushHive] Subscription check failed:', err.message);
         });
     },
 
@@ -158,6 +164,22 @@ function generateSDK(serverUrl) {
       var delay = (config.delay || 3) * 1000;
       var style = config.style || 'banner';
 
+      // Check if user previously denied
+      try {
+        var denied = localStorage.getItem('pushhive_denied');
+        if (denied && (Date.now() - parseInt(denied)) < 7 * 24 * 3600 * 1000) {
+          console.log('[PushHive] User previously dismissed prompt, waiting 7 days');
+          return;
+        }
+      } catch(e) {}
+
+      // Check browser permission state
+      if (Notification.permission === 'denied') {
+        console.log('[PushHive] Notification permission is denied by browser');
+        return;
+      }
+
+      console.log('[PushHive] Showing prompt in ' + (delay/1000) + 's (style: ' + style + ')');
       setTimeout(function() {
         if (style === 'native') {
           PushHive.requestPermission(registration);
@@ -248,7 +270,9 @@ function generateSDK(serverUrl) {
     },
 
     requestPermission: function(registration) {
+      console.log('[PushHive] Requesting notification permission...');
       Notification.requestPermission().then(function(permission) {
+        console.log('[PushHive] Permission result:', permission);
         if (permission === 'granted') {
           PushHive.subscribe(registration);
         }
@@ -256,6 +280,7 @@ function generateSDK(serverUrl) {
     },
 
     subscribe: function(registration) {
+      console.log('[PushHive] Creating push subscription...');
       var vapidKey = PushHive.siteConfig.vapidPublicKey;
       var convertedKey = PushHive.urlBase64ToUint8Array(vapidKey);
 
@@ -264,6 +289,7 @@ function generateSDK(serverUrl) {
         applicationServerKey: convertedKey
       })
       .then(function(subscription) {
+        console.log('[PushHive] Push subscription created, sending to server');
         PushHive.sendSubscription(subscription);
       })
       .catch(function(err) {
