@@ -1,0 +1,125 @@
+<%- include('../partials/header', { pageTitle: 'Dashboard', activePage: 'dashboard' }) %>
+
+<div class="page-header">
+  <h1>Dashboard</h1>
+  <a href="/dashboard/campaigns/new" class="btn btn-primary">+ New Campaign</a>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Total Subscribers</div>
+    <div class="stat-value primary"><%= totalSubscribers.toLocaleString() %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">New Today</div>
+    <div class="stat-value success"><%= newToday.toLocaleString() %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Campaigns</div>
+    <div class="stat-value"><%= totalCampaigns %></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Active Sites</div>
+    <div class="stat-value warning"><%= sites.length %></div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+  <!-- Subscriber Trend -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Subscribers (Last 7 Days)</span>
+    </div>
+    <canvas id="subChart" height="200"></canvas>
+  </div>
+
+  <!-- Recent Campaigns -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Recent Campaigns</span>
+      <a href="/dashboard/campaigns" class="btn btn-outline btn-sm">View All</a>
+    </div>
+    <% if (recentCampaigns.length === 0) { %>
+      <p class="text-muted text-sm">No campaigns yet. Create your first one!</p>
+    <% } else { %>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Campaign</th><th>Site</th><th>Sent</th><th>CTR</th><th>Status</th></tr></thead>
+        <tbody>
+          <% recentCampaigns.forEach(function(c) { %>
+          <tr>
+            <td><a href="/dashboard/campaigns/<%= c._id %>" style="color:var(--primary-hover);text-decoration:none"><%= c.title %></a></td>
+            <td class="text-muted"><%= c.siteId ? c.siteId.name : '—' %></td>
+            <td><%= c.stats.sent %></td>
+            <td><%= c.stats.sent > 0 ? ((c.stats.clicked / c.stats.sent) * 100).toFixed(1) + '%' : '—' %></td>
+            <td>
+              <span class="badge badge-<%= c.status === 'sent' ? 'success' : c.status === 'sending' ? 'warning' : c.status === 'failed' ? 'danger' : 'primary' %>">
+                <%= c.status %>
+              </span>
+            </td>
+          </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
+  </div>
+</div>
+
+<!-- Sites Overview -->
+<div class="card mt-24">
+  <div class="card-header">
+    <span class="card-title">Your Sites</span>
+    <a href="/dashboard/sites" class="btn btn-outline btn-sm">Manage Sites</a>
+  </div>
+  <% if (sites.length === 0) { %>
+    <p class="text-muted text-sm">No sites added yet. <a href="/dashboard/sites" style="color:var(--primary-hover)">Add your first site</a> to start collecting subscribers.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Name</th><th>Domain</th><th>Subscribers</th><th>Status</th></tr></thead>
+      <tbody>
+        <% sites.forEach(function(s) { %>
+        <tr>
+          <td><a href="/dashboard/sites/<%= s._id %>" style="color:var(--primary-hover);text-decoration:none"><%= s.name %></a></td>
+          <td class="text-muted"><%= s.domain %></td>
+          <td><%= s.subscriberCount %></td>
+          <td><span class="badge badge-<%= s.active ? 'success' : 'danger' %>"><%= s.active ? 'Active' : 'Inactive' %></span></td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+  var dailySubs = <%- JSON.stringify(dailySubs) %>;
+  if (dailySubs.length > 0 && document.getElementById('subChart')) {
+    new Chart(document.getElementById('subChart'), {
+      type: 'bar',
+      data: {
+        labels: dailySubs.map(function(d) { return d._id.slice(5); }),
+        datasets: [{
+          label: 'New Subscribers',
+          data: dailySubs.map(function(d) { return d.count; }),
+          backgroundColor: 'rgba(99,102,241,0.5)',
+          borderColor: '#6366f1',
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, ticks: { color: '#71717a' }, grid: { color: '#2a2d38' } },
+          x: { ticks: { color: '#71717a' }, grid: { display: false } }
+        }
+      }
+    });
+  }
+</script>
+
+<%- include('../partials/footer') %>

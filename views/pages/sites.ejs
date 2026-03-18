@@ -1,0 +1,69 @@
+<%- include('../partials/header', { pageTitle: 'Sites', activePage: 'sites' }) %>
+
+<div class="page-header">
+  <h1>Sites</h1>
+</div>
+
+<!-- Add Site Form -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Add New Site</span>
+  </div>
+  <form method="POST" action="/dashboard/sites">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Site Name</label>
+        <input type="text" name="name" class="form-input" placeholder="My Website" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Domain</label>
+        <input type="url" name="domain" class="form-input" placeholder="https://example.com" required>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Add Site</button>
+  </form>
+</div>
+
+<!-- Sites List -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Your Sites (<%= sites.length %>)</span>
+  </div>
+  <% if (sites.length === 0) { %>
+    <p class="text-muted text-sm">No sites added yet. Add your first site above to get started.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Domain</th>
+          <th>API Key</th>
+          <th>Subscribers</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% sites.forEach(function(site) { %>
+        <tr>
+          <td><strong><%= site.name %></strong></td>
+          <td class="text-muted"><%= site.domain %></td>
+          <td>
+            <code style="font-size:11px;color:var(--primary-hover);background:var(--primary-bg);padding:3px 8px;border-radius:4px;"><%= site.apiKey.substring(0, 16) %>...</code>
+            <button class="btn btn-outline btn-sm" style="margin-left:4px;padding:3px 8px;" onclick="copyToClipboard('<%= site.apiKey %>', this)">Copy</button>
+          </td>
+          <td><%= site.subscriberCount %></td>
+          <td><span class="badge badge-<%= site.active ? 'success' : 'danger' %>"><%= site.active ? 'Active' : 'Inactive' %></span></td>
+          <td>
+            <a href="/dashboard/sites/<%= site._id %>" class="btn btn-outline btn-sm">Setup</a>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>

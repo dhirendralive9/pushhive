@@ -1,0 +1,86 @@
+require('dotenv').config();
+const express = require('express');
+const session = require('express-session');
+const MongoStore = require('connect-mongo');
+const mongoose = require('mongoose');
+const path = require('path');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// ── MongoDB Connection ──────────────────────────────────────────
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('✓ MongoDB connected'))
+  .catch(err => { console.error('✗ MongoDB connection error:', err); process.exit(1); });
+
+// ── Middleware ───────────────────────────────────────────────────
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Session with MongoDB store
+app.use(session({
+  secret: process.env.SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGODB_URI,
+    collectionName: 'sessions',
+    ttl: 24 * 60 * 60 // 24 hours
+  }),
+  cookie: {
+    maxAge: 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  },
+  name: 'pushhive.sid'
+}));
+
+// Make session data available to all EJS views
+app.use((req, res, next) => {
+  res.locals.admin = req.session.admin || null;
+  res.locals.success = req.session.success || null;
+  res.locals.error = req.session.error || null;
+  delete req.session.success;
+  delete req.session.error;
+  next();
+});
+
+// ── View Engine ─────────────────────────────────────────────────
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, 'views'));
+
+// ── Routes ──────────────────────────────────────────────────────
+app.use('/auth', require('./routes/auth'));
+app.use('/dashboard', require('./routes/dashboard'));
+app.use('/api', require('./routes/api'));
+app.use('/api/v1', require('./routes/external-api'));
+app.use('/sdk', require('./routes/sdk'));
+
+// Root redirect
+app.get('/', (req, res) => {
+  if (req.session.admin) return res.redirect('/dashboard');
+  res.redirect('/auth/login');
+});
+
+// ── 404 Handler ─────────────────────────────────────────────────
+app.use((req, res) => {
+  res.status(404).render('pages/404');
+});
+
+// ── Error Handler ───────────────────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).render('pages/error', { message: 'Something went wrong' });
+});
+
+// ── Start Server ────────────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`✓ PushHive running on port ${PORT}`);
+  console.log(`  Dashboard: http://localhost:${PORT}/dashboard`);
+
+  // Start campaign scheduler
+  const scheduler = require('./services/scheduler');
+  scheduler.start(30000); // Check every 30 seconds
+});

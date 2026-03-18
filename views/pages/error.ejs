@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Error — PushHive</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/dashboard.css">
+</head>
+<body>
+  <main class="content-full">
+    <div style="text-align:center;">
+      <div style="font-size:48px;font-weight:700;color:var(--danger);margin-bottom:8px;">Error</div>
+      <p class="text-muted" style="font-size:16px;margin-bottom:24px;"><%= typeof message !== 'undefined' ? message : 'Something went wrong' %></p>
+      <a href="/dashboard" class="btn btn-primary">Go to Dashboard</a>
+    </div>
+  </main>
+</body>
+</html>

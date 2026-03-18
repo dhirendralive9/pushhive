@@ -1,0 +1,198 @@
+<%- include('../partials/header', { pageTitle: 'API Docs', activePage: 'api-docs' }) %>
+
+<div class="page-header">
+  <h1>REST API Documentation</h1>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Authentication</span>
+  </div>
+  <p class="text-sm" style="margin-bottom:12px;">
+    All API requests require your site API key. Pass it as a header:
+  </p>
+  <div class="code-block">
+    <pre>X-API-Key: ph_your_api_key_here</pre>
+  </div>
+  <p class="text-sm text-muted mt-8">Or as a query parameter: <code>?apiKey=ph_your_api_key_here</code></p>
+  <p class="text-sm text-muted mt-8">Base URL: <code><%= typeof serverUrl !== 'undefined' ? serverUrl : '' %>/api/v1</code></p>
+</div>
+
+<!-- Quick Send -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Quick Send Notification</span>
+    <span class="badge badge-success">POST</span>
+  </div>
+  <p class="text-sm text-muted mb-16">Send a notification immediately to all or targeted subscribers. Creates a campaign and queues it automatically.</p>
+  <div class="code-block">
+    <button class="copy-btn" onclick="copyToClipboard(document.getElementById('api-send').textContent, this)">Copy</button>
+    <pre id="api-send">curl -X POST <%= typeof serverUrl !== 'undefined' ? serverUrl : 'https://your-server.com' %>/api/v1/send \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "title": "New Blog Post!",
+    "body": "Check out our latest article on web push notifications",
+    "url": "https://example.com/blog/web-push",
+    "icon": "https://example.com/icon.png",
+    "utm": {
+      "source": "pushhive",
+      "medium": "web_push",
+      "campaign": "blog_update"
+    },
+    "targetAll": true
+  }'</pre>
+  </div>
+  <p class="text-sm text-muted mt-8">To target specific tags:</p>
+  <div class="code-block">
+    <pre>"targetAll": false,
+"targetTags": ["premium", "newsletter"]</pre>
+  </div>
+</div>
+
+<!-- Campaigns -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Campaigns</span>
+  </div>
+
+  <h4 style="font-size:14px;color:#fff;margin-bottom:8px;">Create Campaign</h4>
+  <p class="text-sm text-muted">
+    <span class="badge badge-success" style="font-size:10px;">POST</span>
+    <code>/api/v1/campaigns</code>
+  </p>
+  <div class="code-block mt-8">
+    <pre>{
+  "title": "Spring Sale!",
+  "body": "50% off everything this weekend",
+  "url": "https://example.com/sale",
+  "utm": { "campaign": "spring_sale" },
+  "scheduledAt": "2025-04-01T10:00:00Z"
+}</pre>
+  </div>
+
+  <h4 style="font-size:14px;color:#fff;margin:20px 0 8px;">List Campaigns</h4>
+  <p class="text-sm text-muted">
+    <span class="badge badge-primary" style="font-size:10px;">GET</span>
+    <code>/api/v1/campaigns?status=sent&page=1&limit=20</code>
+  </p>
+
+  <h4 style="font-size:14px;color:#fff;margin:20px 0 8px;">Send Campaign</h4>
+  <p class="text-sm text-muted">
+    <span class="badge badge-success" style="font-size:10px;">POST</span>
+    <code>/api/v1/campaigns/:id/send</code>
+  </p>
+
+  <h4 style="font-size:14px;color:#fff;margin:20px 0 8px;">Get Campaign Stats</h4>
+  <p class="text-sm text-muted">
+    <span class="badge badge-primary" style="font-size:10px;">GET</span>
+    <code>/api/v1/campaigns/:id/stats</code>
+  </p>
+  <div class="code-block mt-8">
+    <pre>// Response
+{
+  "success": true,
+  "data": {
+    "targeted": 1500,
+    "sent": 1480,
+    "delivered": 1480,
+    "clicked": 312,
+    "failed": 20,
+    "ctr": "21.08%"
+  }
+}</pre>
+  </div>
+</div>
+
+<!-- Subscribers -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Subscribers</span>
+  </div>
+
+  <h4 style="font-size:14px;color:#fff;margin-bottom:8px;">List Subscribers</h4>
+  <p class="text-sm text-muted">
+    <span class="badge badge-primary" style="font-size:10px;">GET</span>
+    <code>/api/v1/subscribers?page=1&limit=50&device=mobile&browser=Chrome</code>
+  </p>
+
+  <h4 style="font-size:14px;color:#fff;margin:20px 0 8px;">Get Subscriber Count</h4>
+  <p class="text-sm text-muted">
+    <span class="badge badge-primary" style="font-size:10px;">GET</span>
+    <code>/api/v1/subscribers/count</code>
+  </p>
+  <div class="code-block mt-8">
+    <pre>// Response
+{ "success": true, "active": 1500, "total": 1823 }</pre>
+  </div>
+
+  <h4 style="font-size:14px;color:#fff;margin:20px 0 8px;">Add Tags to Subscriber</h4>
+  <p class="text-sm text-muted">
+    <span class="badge badge-success" style="font-size:10px;">POST</span>
+    <code>/api/v1/subscribers/:id/tags</code>
+  </p>
+  <div class="code-block mt-8">
+    <pre>{ "tags": ["premium", "newsletter"] }</pre>
+  </div>
+
+  <h4 style="font-size:14px;color:#fff;margin:20px 0 8px;">Remove Tags</h4>
+  <p class="text-sm text-muted">
+    <span class="badge badge-danger" style="font-size:10px;">DELETE</span>
+    <code>/api/v1/subscribers/:id/tags</code>
+  </p>
+
+  <h4 style="font-size:14px;color:#fff;margin:20px 0 8px;">Cleanup Stale Subscriptions</h4>
+  <p class="text-sm text-muted">
+    <span class="badge badge-success" style="font-size:10px;">POST</span>
+    <code>/api/v1/subscribers/cleanup</code>
+  </p>
+  <p class="text-sm text-muted mt-4">Removes expired/invalid push subscriptions and updates subscriber count.</p>
+</div>
+
+<!-- Test -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Test Notification</span>
+  </div>
+  <p class="text-sm text-muted">
+    <span class="badge badge-success" style="font-size:10px;">POST</span>
+    <code>/api/v1/test/:subscriberId</code>
+  </p>
+  <div class="code-block mt-8">
+    <pre>{
+  "title": "Test",
+  "body": "Testing push notification",
+  "url": "https://example.com"
+}</pre>
+  </div>
+</div>
+
+<!-- Analytics -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Analytics</span>
+  </div>
+  <p class="text-sm text-muted">
+    <span class="badge badge-primary" style="font-size:10px;">GET</span>
+    <code>/api/v1/analytics?days=30</code>
+  </p>
+  <p class="text-sm text-muted mt-8">Returns subscriber growth, event breakdown, browser/device distribution for the specified period.</p>
+</div>
+
+<!-- SDK Subscribe/Unsubscribe -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">SDK Endpoints (used by embedded JS)</span>
+  </div>
+  <table>
+    <thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><span class="badge badge-success" style="font-size:10px;">POST</span></td><td><code>/api/subscribe</code></td><td class="text-muted">Register push subscription</td></tr>
+      <tr><td><span class="badge badge-success" style="font-size:10px;">POST</span></td><td><code>/api/unsubscribe</code></td><td class="text-muted">Remove push subscription</td></tr>
+      <tr><td><span class="badge badge-success" style="font-size:10px;">POST</span></td><td><code>/api/track</code></td><td class="text-muted">Track click/dismiss events</td></tr>
+      <tr><td><span class="badge badge-primary" style="font-size:10px;">GET</span></td><td><code>/api/config</code></td><td class="text-muted">Get site configuration</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<%- include('../partials/footer') %>

@@ -1,0 +1,147 @@
+<%- include('../partials/header', { pageTitle: site.name, activePage: 'sites' }) %>
+
+<div class="page-header">
+  <h1><%= site.name %></h1>
+  <div class="flex gap-8">
+    <a href="/dashboard/sites" class="btn btn-outline">&larr; Back</a>
+    <form method="POST" action="/dashboard/sites/<%= site._id %>/delete" style="display:inline;">
+      <button type="submit" class="btn btn-danger btn-sm" data-confirm="Delete this site and all its data? This cannot be undone.">Delete Site</button>
+    </form>
+  </div>
+</div>
+
+<!-- Embed Code -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Embed Code</span>
+    <span class="badge badge-success"><%= subscriberCount %> subscribers</span>
+  </div>
+  <p class="text-muted text-sm mb-16">Add this script to your website's <code>&lt;head&gt;</code> or before <code>&lt;/body&gt;</code>:</p>
+  <div class="code-block">
+    <button class="copy-btn" onclick="copyToClipboard(document.getElementById('embed-code').textContent, this)">Copy</button>
+    <pre id="embed-code">&lt;script src="<%= serverUrl %>/sdk/pushhive.js" data-pushhive data-api-key="<%= site.apiKey %>"&gt;&lt;/script&gt;</pre>
+  </div>
+
+  <p class="text-muted text-sm mt-16">Or initialize manually:</p>
+  <div class="code-block">
+    <button class="copy-btn" onclick="copyToClipboard(document.getElementById('embed-manual').textContent, this)">Copy</button>
+    <pre id="embed-manual">&lt;script src="<%= serverUrl %>/sdk/pushhive.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  PushHive.init({ apiKey: '<%= site.apiKey %>' });
+&lt;/script&gt;</pre>
+  </div>
+
+  <p class="text-muted text-sm mt-16"><strong>Service Worker:</strong> For push to work, you also need to host the service worker. Add this route or file at your domain root:</p>
+  <div class="code-block">
+    <button class="copy-btn" onclick="copyToClipboard(document.getElementById('sw-code').textContent, this)">Copy</button>
+    <pre id="sw-code">// /pushhive-sw.js — put this file at your website root
+importScripts('<%= serverUrl %>/sdk/pushhive-sw.js');</pre>
+  </div>
+</div>
+
+<!-- Site Settings -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">Site Settings</span>
+  </div>
+  <form method="POST" action="/dashboard/sites/<%= site._id %>/update">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Site Name</label>
+        <input type="text" name="name" class="form-input" value="<%= site.name %>" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Domain</label>
+        <input type="url" name="domain" class="form-input" value="<%= site.domain %>" required>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Default Notification Icon URL</label>
+      <input type="url" name="icon" class="form-input" value="<%= site.icon %>" placeholder="https://example.com/icon-192.png">
+      <p class="form-help">Recommended: 192x192 PNG</p>
+    </div>
+
+    <h3 style="font-size:15px;font-weight:600;color:#fff;margin:24px 0 16px;">Permission Prompt</h3>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Prompt Style</label>
+        <select name="promptStyle" class="form-select">
+          <option value="banner" <%= site.promptConfig.style === 'banner' ? 'selected' : '' %>>Top Banner</option>
+          <option value="modal" <%= site.promptConfig.style === 'modal' ? 'selected' : '' %>>Center Modal</option>
+          <option value="native" <%= site.promptConfig.style === 'native' ? 'selected' : '' %>>Native Browser</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Delay (seconds)</label>
+        <input type="number" name="promptDelay" class="form-input" value="<%= site.promptConfig.delay %>" min="0" max="60">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Prompt Title</label>
+        <input type="text" name="promptTitle" class="form-input" value="<%= site.promptConfig.title %>">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prompt Message</label>
+        <input type="text" name="promptMessage" class="form-input" value="<%= site.promptConfig.message %>">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Allow Button Text</label>
+        <input type="text" name="allowButtonText" class="form-input" value="<%= site.promptConfig.allowButtonText %>">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Deny Button Text</label>
+        <input type="text" name="denyButtonText" class="form-input" value="<%= site.promptConfig.denyButtonText %>">
+      </div>
+    </div>
+
+    <h3 style="font-size:15px;font-weight:600;color:#fff;margin:24px 0 16px;">Welcome Notification</h3>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" name="welcomeEnabled" <%= site.welcomeNotification.enabled ? 'checked' : '' %>>
+        <span class="form-label" style="margin:0;">Send welcome notification on subscribe</span>
+      </label>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Welcome Title</label>
+        <input type="text" name="welcomeTitle" class="form-input" value="<%= site.welcomeNotification.title %>">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Welcome Body</label>
+        <input type="text" name="welcomeBody" class="form-input" value="<%= site.welcomeNotification.body %>">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Welcome Click URL</label>
+      <input type="url" name="welcomeUrl" class="form-input" value="<%= site.welcomeNotification.url %>" placeholder="<%= site.domain %>">
+    </div>
+
+    <h3 style="font-size:15px;font-weight:600;color:#fff;margin:24px 0 16px;">Advanced</h3>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" name="inAppBrowserRedirect" <%= site.inAppBrowserRedirect ? 'checked' : '' %>>
+        <span class="form-label" style="margin:0;">Escape in-app browsers (Facebook, Instagram, etc.)</span>
+      </label>
+      <p class="form-help">Automatically redirect users from Facebook/Instagram's in-app browser to their real browser for push subscription.</p>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Save Changes</button>
+  </form>
+</div>
+
+<!-- API Key -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-title">API Key</span>
+  </div>
+  <div class="code-block">
+    <button class="copy-btn" onclick="copyToClipboard('<%= site.apiKey %>', this)">Copy</button>
+    <pre><%= site.apiKey %></pre>
+  </div>
+</div>
+
+<%- include('../partials/footer') %>

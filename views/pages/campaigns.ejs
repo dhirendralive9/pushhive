@@ -1,0 +1,61 @@
+<%- include('../partials/header', { pageTitle: 'Campaigns', activePage: 'campaigns' }) %>
+
+<div class="page-header">
+  <h1>Campaigns</h1>
+  <a href="/dashboard/campaigns/new" class="btn btn-primary">+ New Campaign</a>
+</div>
+
+<div class="card">
+  <% if (campaigns.length === 0) { %>
+    <p class="text-muted text-sm">No campaigns yet. <a href="/dashboard/campaigns/new" style="color:var(--primary-hover)">Create your first campaign</a>.</p>
+  <% } else { %>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Site</th>
+          <th>Status</th>
+          <th>Sent</th>
+          <th>Clicked</th>
+          <th>CTR</th>
+          <th>Date</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% campaigns.forEach(function(c) { %>
+        <tr>
+          <td>
+            <a href="/dashboard/campaigns/<%= c._id %>" style="color:var(--primary-hover);text-decoration:none;font-weight:500;">
+              <%= c.title %>
+            </a>
+            <div class="text-muted text-xs truncate"><%= c.body %></div>
+          </td>
+          <td class="text-muted"><%= c.siteId ? c.siteId.name : '—' %></td>
+          <td>
+            <span class="badge badge-<%= c.status === 'sent' ? 'success' : c.status === 'sending' ? 'warning' : c.status === 'failed' ? 'danger' : c.status === 'scheduled' ? 'warning' : 'primary' %>">
+              <%= c.status %>
+            </span>
+          </td>
+          <td><%= c.stats.sent.toLocaleString() %></td>
+          <td><%= c.stats.clicked.toLocaleString() %></td>
+          <td><%= c.stats.sent > 0 ? ((c.stats.clicked / c.stats.sent) * 100).toFixed(1) + '%' : '—' %></td>
+          <td class="text-muted text-xs"><%= c.sentAt ? new Date(c.sentAt).toLocaleDateString() : new Date(c.createdAt).toLocaleDateString() %></td>
+          <td>
+            <% if (c.status === 'draft' || c.status === 'scheduled') { %>
+            <form method="POST" action="/dashboard/campaigns/<%= c._id %>/send" style="display:inline;">
+              <button type="submit" class="btn btn-success btn-sm" data-confirm="Send this campaign now?">Send Now</button>
+            </form>
+            <% } %>
+            <a href="/dashboard/campaigns/<%= c._id %>" class="btn btn-outline btn-sm">Details</a>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>

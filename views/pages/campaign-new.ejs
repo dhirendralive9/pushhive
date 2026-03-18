@@ -1,0 +1,153 @@
+<%- include('../partials/header', { pageTitle: 'New Campaign', activePage: 'campaigns' }) %>
+
+<div class="page-header">
+  <h1>New Campaign</h1>
+  <a href="/dashboard/campaigns" class="btn btn-outline">&larr; Back</a>
+</div>
+
+<form method="POST" action="/dashboard/campaigns">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Notification Content</span>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Site *</label>
+      <select name="siteId" class="form-select" required>
+        <option value="">Select a site</option>
+        <% sites.forEach(function(s) { %>
+        <option value="<%= s._id %>"><%= s.name %> — <%= s.domain %></option>
+        <% }) %>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Title * <span class="text-muted">(max 100)</span></label>
+        <input type="text" name="title" class="form-input" placeholder="Check out our new feature!" maxlength="100" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Click URL *</label>
+        <input type="url" name="url" class="form-input" placeholder="https://example.com/page" required>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Body * <span class="text-muted">(max 250)</span></label>
+      <textarea name="body" class="form-textarea" placeholder="We've just launched something exciting..." maxlength="250" required></textarea>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Icon URL</label>
+        <input type="url" name="icon" class="form-input" placeholder="https://example.com/icon.png">
+        <p class="form-help">192x192 PNG recommended. Leave blank for site default.</p>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Large Image URL</label>
+        <input type="url" name="image" class="form-input" placeholder="https://example.com/banner.jpg">
+        <p class="form-help">Optional hero image shown in expanded notification.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action Buttons -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Action Buttons <span class="text-muted text-sm">(optional, max 2)</span></span>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Button 1 Title</label>
+        <input type="text" name="action1Title" class="form-input" placeholder="Learn More">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Button 1 URL</label>
+        <input type="url" name="action1Url" class="form-input" placeholder="https://example.com/learn">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Button 2 Title</label>
+        <input type="text" name="action2Title" class="form-input" placeholder="Dismiss">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Button 2 URL</label>
+        <input type="url" name="action2Url" class="form-input" placeholder="https://example.com">
+      </div>
+    </div>
+  </div>
+
+  <!-- UTM Parameters -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">UTM Parameters</span>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">utm_source</label>
+        <input type="text" name="utmSource" class="form-input" value="pushhive" placeholder="pushhive">
+      </div>
+      <div class="form-group">
+        <label class="form-label">utm_medium</label>
+        <input type="text" name="utmMedium" class="form-input" value="web_push" placeholder="web_push">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">utm_campaign</label>
+        <input type="text" name="utmCampaign" class="form-input" placeholder="spring_sale">
+      </div>
+      <div class="form-group">
+        <label class="form-label">utm_content</label>
+        <input type="text" name="utmContent" class="form-input" placeholder="variant_a">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">utm_term</label>
+      <input type="text" name="utmTerm" class="form-input" placeholder="optional">
+    </div>
+  </div>
+
+  <!-- Targeting -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Targeting</span>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="radio" name="targetAll" value="true" checked>
+        <span class="form-label" style="margin:0;">All subscribers</span>
+      </label>
+    </div>
+    <div class="form-group">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="radio" name="targetAll" value="false">
+        <span class="form-label" style="margin:0;">By tags</span>
+      </label>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tags (comma separated)</label>
+      <input type="text" name="targetTags" class="form-input" placeholder="vip, premium, returning">
+    </div>
+  </div>
+
+  <!-- Scheduling -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Schedule</span>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Schedule for later (optional)</label>
+      <input type="datetime-local" name="scheduledAt" class="form-input">
+      <p class="form-help">Leave empty to save as draft. You can send it manually from the campaigns list.</p>
+    </div>
+  </div>
+
+  <div class="flex gap-8">
+    <button type="submit" class="btn btn-primary">Create Campaign</button>
+    <a href="/dashboard/campaigns" class="btn btn-outline">Cancel</a>
+  </div>
+</form>
+
+<%- include('../partials/footer') %>
