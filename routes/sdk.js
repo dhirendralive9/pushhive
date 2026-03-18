@@ -128,15 +128,17 @@ function generateSDK(serverUrl) {
     },
 
     registerServiceWorker: function() {
-      navigator.serviceWorker.register(this.serverUrl + '/sdk/pushhive-sw.js', { scope: '/' })
+      // Always register from same origin — the local pushhive-sw.js
+      // imports the actual logic from the PushHive server via importScripts()
+      navigator.serviceWorker.register('/pushhive-sw.js', { scope: '/' })
         .then(function(registration) {
           console.log('[PushHive] Service Worker registered');
           PushHive.checkSubscription(registration);
         })
         .catch(function(err) {
-          // Fallback: try registering from same origin
-          console.warn('[PushHive] Cross-origin SW failed, attempting local registration');
-          console.error(err);
+          console.error('[PushHive] Service Worker registration failed:', err.message);
+          console.error('[PushHive] Make sure /pushhive-sw.js exists at your site root.');
+          console.error('[PushHive] Create it with: importScripts(\'' + PushHive.serverUrl + '/sdk/pushhive-sw.js\');');
         });
     },
 
