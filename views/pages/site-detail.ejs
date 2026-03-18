@@ -16,27 +16,56 @@
     <span class="card-title">Embed Code</span>
     <span class="badge badge-success"><%= subscriberCount %> subscribers</span>
   </div>
-  <p class="text-muted text-sm mb-16">Add this script to your website's <code>&lt;head&gt;</code> or before <code>&lt;/body&gt;</code>:</p>
+
+  <h3 style="font-size:15px;font-weight:600;color:#fff;margin-bottom:16px;">Step 1 — Add the Script</h3>
+  <p class="text-muted text-sm mb-16">Paste this single line anywhere in your website's HTML — in the <code>&lt;head&gt;</code>, before <code>&lt;/body&gt;</code>, or in your template/theme:</p>
   <div class="code-block">
     <button class="copy-btn" onclick="copyToClipboard(document.getElementById('embed-code').textContent, this)">Copy</button>
     <pre id="embed-code">&lt;script src="<%= serverUrl %>/sdk/pushhive.js" data-pushhive data-api-key="<%= site.apiKey %>"&gt;&lt;/script&gt;</pre>
   </div>
 
-  <p class="text-muted text-sm mt-16">Or initialize manually:</p>
+  <h3 style="font-size:15px;font-weight:600;color:#fff;margin:24px 0 16px;">Step 2 — Create the Service Worker File</h3>
+  <p class="text-muted text-sm mb-16">Push notifications require a <strong>service worker</strong> file hosted on <strong>your website's root domain</strong>. This is a browser requirement — it cannot be loaded from our server.</p>
+
+  <p class="text-muted text-sm mb-8">Create a file called <code>pushhive-sw.js</code> in your website's <strong>root directory</strong> (same level as your <code>index.html</code>) with this single line:</p>
   <div class="code-block">
-    <button class="copy-btn" onclick="copyToClipboard(document.getElementById('embed-manual').textContent, this)">Copy</button>
-    <pre id="embed-manual">&lt;script src="<%= serverUrl %>/sdk/pushhive.js"&gt;&lt;/script&gt;
+    <button class="copy-btn" onclick="copyToClipboard(document.getElementById('sw-code').textContent, this)">Copy</button>
+    <pre id="sw-code">importScripts('<%= serverUrl %>/sdk/pushhive-sw.js');</pre>
+  </div>
+
+  <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-top:16px;">
+    <p class="text-sm" style="color:#fff;font-weight:600;margin-bottom:8px;">Where exactly does this file go?</p>
+    <p class="text-muted text-sm" style="margin-bottom:8px;">The file must be accessible at: <code style="color:var(--primary-hover);"><%= site.domain %>/pushhive-sw.js</code></p>
+    <p class="text-muted text-sm" style="margin-bottom:4px;">Examples by platform:</p>
+    <table style="margin-top:8px;">
+      <tr><td class="text-muted text-sm" style="padding:4px 16px 4px 0;"><strong>Static HTML</strong></td><td class="text-sm">Put <code>pushhive-sw.js</code> next to your <code>index.html</code></td></tr>
+      <tr><td class="text-muted text-sm" style="padding:4px 16px 4px 0;"><strong>WordPress</strong></td><td class="text-sm">Upload to your WordPress root folder (where <code>wp-config.php</code> lives)</td></tr>
+      <tr><td class="text-muted text-sm" style="padding:4px 16px 4px 0;"><strong>React / Next.js</strong></td><td class="text-sm">Put in the <code>/public</code> folder</td></tr>
+      <tr><td class="text-muted text-sm" style="padding:4px 16px 4px 0;"><strong>Laravel / PHP</strong></td><td class="text-sm">Put in the <code>/public</code> folder</td></tr>
+      <tr><td class="text-muted text-sm" style="padding:4px 16px 4px 0;"><strong>Nginx / Apache</strong></td><td class="text-sm">Put in your webroot (e.g. <code>/var/www/html/</code>)</td></tr>
+    </table>
+  </div>
+
+  <h3 style="font-size:15px;font-weight:600;color:#fff;margin:24px 0 16px;">Step 3 — Verify</h3>
+  <p class="text-muted text-sm">Open your website in a browser and check:</p>
+  <div style="background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin-top:8px;">
+    <p class="text-sm" style="margin-bottom:6px;">1. Visit <code style="color:var(--primary-hover);"><%= site.domain %>/pushhive-sw.js</code> — you should see the <code>importScripts</code> line</p>
+    <p class="text-sm" style="margin-bottom:6px;">2. Visit your website — after a few seconds, you should see a notification permission prompt</p>
+    <p class="text-sm">3. Accept the notification — check this dashboard, your subscriber count should increase</p>
+  </div>
+
+  <details style="margin-top:16px;">
+    <summary style="cursor:pointer;color:var(--text-muted);font-size:13px;">Alternative: Manual initialization (advanced)</summary>
+    <div style="margin-top:12px;">
+      <div class="code-block">
+        <button class="copy-btn" onclick="copyToClipboard(document.getElementById('embed-manual').textContent, this)">Copy</button>
+        <pre id="embed-manual">&lt;script src="<%= serverUrl %>/sdk/pushhive.js"&gt;&lt;/script&gt;
 &lt;script&gt;
   PushHive.init({ apiKey: '<%= site.apiKey %>' });
 &lt;/script&gt;</pre>
-  </div>
-
-  <p class="text-muted text-sm mt-16"><strong>Service Worker:</strong> For push to work, you also need to host the service worker. Add this route or file at your domain root:</p>
-  <div class="code-block">
-    <button class="copy-btn" onclick="copyToClipboard(document.getElementById('sw-code').textContent, this)">Copy</button>
-    <pre id="sw-code">// /pushhive-sw.js — put this file at your website root
-importScripts('<%= serverUrl %>/sdk/pushhive-sw.js');</pre>
-  </div>
+      </div>
+    </div>
+  </details>
 </div>
 
 <!-- Site Settings -->
