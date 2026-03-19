@@ -141,9 +141,24 @@ function generateSDK(serverUrl) {
         return;
       }
 
-      // 2. iOS non-Safari browsers (Chrome iOS, Firefox iOS, Edge iOS)
-      if (isIOS && (/(CriOS|FxiOS|EdgiOS|OPiOS)/i.test(ua))) {
-        console.warn('[PushHive] iOS non-Safari browser. Push requires Safari.');
+      // 2. iOS non-Safari browsers (Chrome iOS, Firefox iOS, Edge iOS, etc.)
+      //    On iOS, Safari UA does NOT contain CriOS/FxiOS/EdgiOS
+      //    But also check: Safari UA contains "Safari" but NOT "CriOS" etc.
+      var isIOSNonSafari = isIOS && !isStandalone && (
+        ua.indexOf('CriOS') > -1 ||    // Chrome iOS
+        ua.indexOf('FxiOS') > -1 ||    // Firefox iOS
+        ua.indexOf('EdgiOS') > -1 ||   // Edge iOS
+        ua.indexOf('OPiOS') > -1 ||    // Opera iOS
+        ua.indexOf('brave') > -1 ||    // Brave iOS
+        ua.indexOf('DuckDuckGo') > -1 || // DDG iOS
+        ua.indexOf('GSA/') > -1 ||     // Google app iOS
+        // If none of the above matched, check if it claims to be Safari
+        // Real Safari has "Safari/" in UA but NOT any of the above
+        (ua.indexOf('Safari') === -1)
+      );
+
+      if (isIOSNonSafari) {
+        console.warn('[PushHive] iOS non-Safari browser detected:', ua.substring(0, 80));
         this.fetchConfig(function(cfg) {
           PushHive.siteConfig = cfg;
           setTimeout(function() { PushHive.showIOSSafariPrompt(); }, (cfg && cfg.promptConfig ? cfg.promptConfig.delay : 3) * 1000);
@@ -325,17 +340,30 @@ function generateSDK(serverUrl) {
       var overlay = document.createElement('div');
       overlay.id = 'pushhive-ios-prompt';
       overlay.innerHTML =
-        '<div style="position:fixed;bottom:0;left:0;right:0;background:#fff;color:#333;padding:24px;box-shadow:0 -4px 24px rgba(0,0,0,0.15);z-index:999999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;border-radius:16px 16px 0 0;">' +
-        '<div style="font-weight:600;font-size:16px;margin-bottom:8px;">Get Push Notifications</div>' +
-        '<div style="font-size:14px;color:#666;margin-bottom:16px;">To receive notifications on iOS:</div>' +
-        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:12px;background:#f5f5f5;border-radius:8px;">' +
-        '<span style="font-size:24px;">1.</span><span>Tap the <strong>Share</strong> button <span style="font-size:20px;">&#x2191;</span> at the bottom of Safari</span></div>' +
-        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px;background:#f5f5f5;border-radius:8px;">' +
-        '<span style="font-size:24px;">2.</span><span>Select <strong>"Add to Home Screen"</strong></span></div>' +
-        '<button id="pushhive-ios-close" style="width:100%;padding:12px;border:none;background:#4F46E5;color:#fff;border-radius:8px;cursor:pointer;font-size:15px;font-weight:500;">Got it</button>' +
+        '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:999998;" id="pushhive-ios-backdrop"></div>' +
+        '<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:90%;max-width:340px;background:#fff;color:#333;padding:28px 24px;box-shadow:0 8px 32px rgba(0,0,0,0.25);z-index:999999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;border-radius:16px;">' +
+        '<div style="text-align:center;margin-bottom:16px;">' +
+        '<div style="font-size:36px;margin-bottom:8px;">&#x1F514;</div>' +
+        '<div style="font-weight:700;font-size:18px;margin-bottom:4px;">Enable Push Notifications</div>' +
+        '<div style="font-size:13px;color:#888;">Follow these steps to get notified</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;padding:10px 12px;background:#f5f5f5;border-radius:10px;">' +
+        '<span style="font-size:13px;font-weight:700;color:#4F46E5;min-width:22px;">1.</span>' +
+        '<span style="font-size:13px;line-height:1.4;">Tap the <strong style="font-size:18px;vertical-align:middle;">&#x2026;</strong> (three dots) at the bottom right of Safari</span></div>' +
+        '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;padding:10px 12px;background:#f5f5f5;border-radius:10px;">' +
+        '<span style="font-size:13px;font-weight:700;color:#4F46E5;min-width:22px;">2.</span>' +
+        '<span style="font-size:13px;line-height:1.4;">Tap <strong>Share</strong> <span style="font-size:16px;vertical-align:middle;">&#x2191;&#xFE0E;</span> from the menu</span></div>' +
+        '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;padding:10px 12px;background:#f5f5f5;border-radius:10px;">' +
+        '<span style="font-size:13px;font-weight:700;color:#4F46E5;min-width:22px;">3.</span>' +
+        '<span style="font-size:13px;line-height:1.4;">Scroll down and tap <strong>"Add to Home Screen"</strong></span></div>' +
+        '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;padding:10px 12px;background:#f5f5f5;border-radius:10px;">' +
+        '<span style="font-size:13px;font-weight:700;color:#4F46E5;min-width:22px;">4.</span>' +
+        '<span style="font-size:13px;line-height:1.4;">Open the app from your home screen and tap <strong>Enable Notifications</strong></span></div>' +
+        '<button id="pushhive-ios-close" style="width:100%;padding:14px;border:none;background:#4F46E5;color:#fff;border-radius:10px;cursor:pointer;font-size:15px;font-weight:600;">Got it!</button>' +
         '</div>';
       document.body.appendChild(overlay);
       document.getElementById('pushhive-ios-close').onclick = function() { overlay.remove(); };
+      document.getElementById('pushhive-ios-backdrop').onclick = function() { overlay.remove(); };
     },
 
     showIOSPWAPrompt: function(registration) {
@@ -373,23 +401,34 @@ function generateSDK(serverUrl) {
       var overlay = document.createElement('div');
       overlay.id = 'pushhive-safari-prompt';
       overlay.innerHTML =
-        '<div style="position:fixed;bottom:0;left:0;right:0;background:#fff;color:#333;padding:24px;box-shadow:0 -4px 24px rgba(0,0,0,0.15);z-index:999999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;border-radius:16px 16px 0 0;">' +
-        '<div style="font-weight:600;font-size:16px;margin-bottom:8px;">Open in Safari</div>' +
-        '<div style="font-size:14px;color:#666;margin-bottom:16px;">Push notifications on iOS require Safari. You are currently using a different browser.</div>' +
-        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:12px;background:#f5f5f5;border-radius:8px;">' +
-        '<span style="font-size:24px;">1.</span><span>Copy this page URL</span></div>' +
-        '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px;background:#f5f5f5;border-radius:8px;">' +
-        '<span style="font-size:24px;">2.</span><span>Open <strong>Safari</strong> and paste the URL</span></div>' +
+        '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:999998;" id="pushhive-safari-backdrop"></div>' +
+        '<div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:90%;max-width:340px;background:#fff;color:#333;padding:28px 24px;box-shadow:0 8px 32px rgba(0,0,0,0.25);z-index:999999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;border-radius:16px;">' +
+        '<div style="text-align:center;margin-bottom:16px;">' +
+        '<div style="font-size:36px;margin-bottom:8px;">&#x1F310;</div>' +
+        '<div style="font-weight:700;font-size:18px;margin-bottom:4px;">Open in Safari</div>' +
+        '<div style="font-size:13px;color:#888;">Push notifications require Safari on iOS</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px;padding:10px 12px;background:#f5f5f5;border-radius:10px;">' +
+        '<span style="font-size:13px;font-weight:700;color:#4F46E5;min-width:22px;">1.</span>' +
+        '<span style="font-size:13px;line-height:1.4;">Copy this page URL (tap button below)</span></div>' +
+        '<div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;padding:10px 12px;background:#f5f5f5;border-radius:10px;">' +
+        '<span style="font-size:13px;font-weight:700;color:#4F46E5;min-width:22px;">2.</span>' +
+        '<span style="font-size:13px;line-height:1.4;">Open <strong>Safari</strong> and paste the URL in the address bar</span></div>' +
         '<div style="display:flex;gap:8px;">' +
-        '<button id="pushhive-copy-url" style="flex:1;padding:12px;border:none;background:#4F46E5;color:#fff;border-radius:8px;cursor:pointer;font-size:15px;font-weight:500;">Copy URL</button>' +
-        '<button id="pushhive-safari-close" style="padding:12px 20px;border:1px solid #ddd;background:#fff;color:#666;border-radius:8px;cursor:pointer;font-size:15px;">Close</button>' +
+        '<button id="pushhive-copy-url" style="flex:1;padding:14px;border:none;background:#4F46E5;color:#fff;border-radius:10px;cursor:pointer;font-size:15px;font-weight:600;">Copy URL</button>' +
+        '<button id="pushhive-safari-close" style="padding:14px 16px;border:1px solid #ddd;background:#fff;color:#666;border-radius:10px;cursor:pointer;font-size:14px;">Close</button>' +
         '</div></div>';
       document.body.appendChild(overlay);
       document.getElementById('pushhive-safari-close').onclick = function() { overlay.remove(); };
+      document.getElementById('pushhive-safari-backdrop').onclick = function() { overlay.remove(); };
       document.getElementById('pushhive-copy-url').onclick = function() {
         navigator.clipboard.writeText(window.location.href).then(function() {
           document.getElementById('pushhive-copy-url').textContent = 'Copied!';
-          setTimeout(function() { document.getElementById('pushhive-copy-url').textContent = 'Copy URL'; }, 2000);
+          document.getElementById('pushhive-copy-url').style.background = '#22c55e';
+          setTimeout(function() {
+            var btn = document.getElementById('pushhive-copy-url');
+            if (btn) { btn.textContent = 'Copy URL'; btn.style.background = '#4F46E5'; }
+          }, 2000);
         }).catch(function() {
           prompt('Copy this URL and open it in Safari:', window.location.href);
         });
