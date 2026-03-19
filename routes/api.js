@@ -117,17 +117,29 @@ router.post('/unsubscribe', requireApiKey, async (req, res) => {
 });
 
 // ── Track Events (clicks, dismissals) ───────────────────────────
-router.post('/track', requireApiKey, async (req, res) => {
+router.post('/track', async (req, res) => {
   try {
-    const { campaignId, type, utm, subscriberId } = req.body;
+    const { campaignId, type, utm, subscriberId, siteId, apiKey } = req.body;
     if (!campaignId || !type) {
       return res.status(400).json({ error: 'campaignId and type required' });
+    }
+
+    // Authenticate: accept API key OR siteId (for service worker tracking)
+    var site = null;
+    if (apiKey || req.headers['x-api-key']) {
+      site = await Site.findOne({ apiKey: apiKey || req.headers['x-api-key'], active: true });
+    }
+    if (!site && siteId) {
+      site = await Site.findById(siteId);
+    }
+    if (!site) {
+      return res.status(403).json({ error: 'Invalid site' });
     }
 
     const ua = req.headers['user-agent'] || '';
 
     const event = new Event({
-      siteId: req.site._id,
+      siteId: site._id,
       campaignId,
       subscriberId: subscriberId || undefined,
       type,
@@ -149,10 +161,10 @@ router.post('/track', requireApiKey, async (req, res) => {
           lastActive: new Date()
         });
       }
-      webhooks.fire('notification.clicked', req.site._id, { campaignId, subscriberId, utm: utm || {} }).catch(() => {});
+      webhooks.fire('notification.clicked', site._id, { campaignId, subscriberId, utm: utm || {} }).catch(() => {});
     } else if (type === 'dismissed') {
       await Campaign.findByIdAndUpdate(campaignId, { $inc: { 'stats.dismissed': 1 } });
-      webhooks.fire('notification.dismissed', req.site._id, { campaignId, subscriberId }).catch(() => {});
+      webhooks.fire('notification.dismissed', site._id, { campaignId, subscriberId }).catch(() => {});
     }
 
     res.json({ success: true });
