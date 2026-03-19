@@ -56,6 +56,39 @@ router.get('/pushhive-sw.js', (req, res) => {
   res.send(swContent);
 });
 
+// ── Serve manifest.json for PWA (required for iOS push) ─────────
+router.get('/manifest.json', (req, res) => {
+  const apiKey = req.query.apiKey || '';
+  const Site = require('../models/Site');
+
+  Site.findOne({ apiKey, active: true }).then(site => {
+    const name = site ? site.name : 'Web App';
+    const domain = site ? site.domain : req.get('host');
+
+    res.set('Content-Type', 'application/json');
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({
+      name: name,
+      short_name: name.substring(0, 12),
+      start_url: '/',
+      display: 'standalone',
+      background_color: '#ffffff',
+      theme_color: '#6366f1',
+      icons: [
+        { src: (site && site.icon) || '/favicon.ico', sizes: '192x192', type: 'image/png' },
+        { src: (site && site.icon) || '/favicon.ico', sizes: '512x512', type: 'image/png' }
+      ]
+    });
+  }).catch(() => {
+    res.json({
+      name: 'Web App', short_name: 'App', start_url: '/',
+      display: 'standalone', background_color: '#ffffff', theme_color: '#6366f1',
+      icons: [{ src: '/favicon.ico', sizes: '192x192', type: 'image/png' }]
+    });
+  });
+});
+
 function generateSDK(serverUrl) {
   var vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
   return `
@@ -74,6 +107,29 @@ function generateSDK(serverUrl) {
 
       var ua = navigator.userAgent || '';
       var isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+      var isStandalone = window.navigator.standalone === true ||
+                         window.matchMedia('(display-mode: standalone)').matches;
+
+      // Inject manifest.json link if not already present (required for iOS PWA)
+      if (!document.querySelector('link[rel="manifest"]')) {
+        var manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        manifestLink.href = PushHive.serverUrl + '/sdk/manifest.json?apiKey=' + this.apiKey;
+        document.head.appendChild(manifestLink);
+        console.log('[PushHive] Manifest injected for PWA support');
+      }
+
+      // Also inject apple-mobile-web-app meta tags for iOS
+      if (isIOS && !document.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
+        var meta1 = document.createElement('meta');
+        meta1.name = 'apple-mobile-web-app-capable';
+        meta1.content = 'yes';
+        document.head.appendChild(meta1);
+        var meta2 = document.createElement('meta');
+        meta2.name = 'apple-mobile-web-app-status-bar-style';
+        meta2.content = 'default';
+        document.head.appendChild(meta2);
+      }
 
       // 1. Check for social media in-app browsers (FB, IG, TikTok etc.)
       if (this.isInAppBrowser()) {
@@ -86,10 +142,8 @@ function generateSDK(serverUrl) {
       }
 
       // 2. iOS non-Safari browsers (Chrome iOS, Firefox iOS, Edge iOS)
-      //    These use WKWebView — no service worker support, can't subscribe
-      //    Don't redirect — just show a "use Safari" message
       if (isIOS && (/(CriOS|FxiOS|EdgiOS|OPiOS)/i.test(ua))) {
-        console.warn('[PushHive] iOS non-Safari browser detected. Push requires Safari.');
+        console.warn('[PushHive] iOS non-Safari browser. Push requires Safari.');
         this.fetchConfig(function(cfg) {
           PushHive.siteConfig = cfg;
           setTimeout(function() { PushHive.showIOSSafariPrompt(); }, (cfg && cfg.promptConfig ? cfg.promptConfig.delay : 3) * 1000);
@@ -97,21 +151,45 @@ function generateSDK(serverUrl) {
         return;
       }
 
-      // 3. Check service worker & push support
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        // iOS Safari not in standalone/PWA mode
-        if (isIOS) {
-          this.fetchConfig(function(cfg) {
-            PushHive.siteConfig = cfg;
-            setTimeout(function() { PushHive.showIOSPrompt(); }, (cfg && cfg.promptConfig ? cfg.promptConfig.delay : 3) * 1000);
+      // 3. iOS Safari but NOT installed as PWA (not standalone)
+      if (isIOS && !isStandalone) {
+        console.log('[PushHive] iOS Safari detected, not in standalone mode');
+        this.fetchConfig(function(cfg) {
+          PushHive.siteConfig = cfg;
+          setTimeout(function() { PushHive.showIOSPrompt(); }, (cfg && cfg.promptConfig ? cfg.promptConfig.delay : 3) * 1000);
+        });
+        return;
+      }
+
+      // 4. iOS Safari in standalone mode (PWA) — push is available!
+      //    Permission MUST be requested from a user gesture (click handler)
+      if (isIOS && isStandalone) {
+        console.log('[PushHive] iOS PWA mode detected — push available');
+        this.fetchConfig(function(cfg) {
+          PushHive.siteConfig = cfg;
+          PushHive.registerServiceWorker(function(registration) {
+            // Check if already subscribed
+            registration.pushManager.getSubscription().then(function(sub) {
+              if (sub) {
+                console.log('[PushHive] Already subscribed on iOS PWA');
+                PushHive.sendSubscription(sub);
+              } else {
+                // Show our custom prompt — the Allow button triggers permission request (user gesture!)
+                console.log('[PushHive] Will show subscribe button for iOS PWA');
+                PushHive.showIOSPWAPrompt(registration);
+              }
+            });
           });
-          return;
-        }
+        });
+        return;
+      }
+
+      // 5. Desktop + Android — normal flow (service worker + push supported)
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         console.warn('[PushHive] Push notifications not supported in this browser');
         return;
       }
 
-      // 4. Normal flow — service workers supported
       this.fetchConfig(function(cfg) {
         PushHive.siteConfig = cfg;
         PushHive.registerServiceWorker();
@@ -144,18 +222,19 @@ function generateSDK(serverUrl) {
       });
     },
 
-    registerServiceWorker: function() {
-      // Always register from same origin — the local pushhive-sw.js
-      // imports the actual logic from the PushHive server via importScripts()
+    registerServiceWorker: function(callback) {
       navigator.serviceWorker.register('/pushhive-sw.js', { scope: '/' })
         .then(function(registration) {
           console.log('[PushHive] Service Worker registered');
-          PushHive.checkSubscription(registration);
+          if (typeof callback === 'function') {
+            callback(registration);
+          } else {
+            PushHive.checkSubscription(registration);
+          }
         })
         .catch(function(err) {
           console.error('[PushHive] Service Worker registration failed:', err.message);
           console.error('[PushHive] Make sure /pushhive-sw.js exists at your site root.');
-          console.error('[PushHive] File contents: importScripts(' + PushHive.serverUrl + '/sdk/pushhive-sw.js)');
         });
     },
 
@@ -259,6 +338,37 @@ function generateSDK(serverUrl) {
       document.getElementById('pushhive-ios-close').onclick = function() { overlay.remove(); };
     },
 
+    showIOSPWAPrompt: function(registration) {
+      // iOS PWA mode — permission MUST be requested from user gesture (click)
+      var overlay = document.createElement('div');
+      overlay.id = 'pushhive-ios-pwa-prompt';
+      overlay.innerHTML =
+        '<div style="position:fixed;bottom:0;left:0;right:0;background:#fff;color:#333;padding:24px;box-shadow:0 -4px 24px rgba(0,0,0,0.15);z-index:999999;font-family:-apple-system,BlinkMacSystemFont,sans-serif;border-radius:16px 16px 0 0;">' +
+        '<div style="font-weight:600;font-size:16px;margin-bottom:8px;">Enable Notifications</div>' +
+        '<div style="font-size:14px;color:#666;margin-bottom:16px;">Stay updated with the latest content and offers.</div>' +
+        '<div style="display:flex;gap:8px;">' +
+        '<button id="pushhive-ios-pwa-allow" style="flex:1;padding:14px;border:none;background:#4F46E5;color:#fff;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;">Enable Notifications</button>' +
+        '<button id="pushhive-ios-pwa-deny" style="padding:14px 20px;border:1px solid #ddd;background:#fff;color:#666;border-radius:8px;cursor:pointer;font-size:15px;">Not Now</button>' +
+        '</div></div>';
+      document.body.appendChild(overlay);
+
+      // The click handler IS the user gesture required by iOS
+      document.getElementById('pushhive-ios-pwa-allow').onclick = function() {
+        overlay.remove();
+        console.log('[PushHive] iOS PWA: requesting permission via user gesture');
+        Notification.requestPermission().then(function(permission) {
+          console.log('[PushHive] iOS PWA permission result:', permission);
+          if (permission === 'granted') {
+            PushHive.subscribe(registration);
+          }
+        });
+      };
+      document.getElementById('pushhive-ios-pwa-deny').onclick = function() {
+        overlay.remove();
+        try { localStorage.setItem('pushhive_denied', Date.now()); } catch(e) {}
+      };
+    },
+
     showIOSSafariPrompt: function() {
       var overlay = document.createElement('div');
       overlay.id = 'pushhive-safari-prompt';
@@ -346,7 +456,9 @@ function generateSDK(serverUrl) {
           'Content-Type': 'application/json',
           'X-API-Key': PushHive.apiKey
         },
-        body: JSON.stringify(data)
+        body: JSON.stringify(data),
+        mode: 'cors',
+        credentials: 'omit'
       })
       .then(function(response) {
         return response.json();
@@ -359,7 +471,19 @@ function generateSDK(serverUrl) {
         }
       })
       .catch(function(err) {
-        console.error('[PushHive] Subscribe request failed:', err.message);
+        console.warn('[PushHive] Fetch subscribe blocked, trying beacon fallback');
+        // Fallback: use navigator.sendBeacon which is less likely to be blocked
+        if (navigator.sendBeacon) {
+          var blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+          var sent = navigator.sendBeacon(PushHive.serverUrl + '/api/subscribe?apiKey=' + PushHive.apiKey, blob);
+          if (sent) {
+            console.log('[PushHive] Subscribed via beacon');
+          } else {
+            console.error('[PushHive] Beacon also failed');
+          }
+        } else {
+          console.error('[PushHive] Subscribe request blocked by browser tracking prevention');
+        }
       });
     },
 
@@ -475,37 +599,45 @@ function generateServiceWorker(serverUrl) {
 var PUSHHIVE_SERVER = '${serverUrl}';
 
 self.addEventListener('push', function(event) {
-  if (!event.data) return;
-
+  // iOS REQUIRES showNotification in waitUntil — silent pushes kill the subscription
+  var data = {};
   try {
-    var data = event.data.json();
-    var options = {
-      body: data.body || '',
-      icon: data.icon || '',
-      image: data.image || '',
-      badge: data.badge || '/favicon.ico',
-      data: {
-        url: data.url || '/',
-        campaignId: data.campaignId || '',
-        siteId: data.siteId || '',
-        utm: data.utm || {}
-      },
-      requireInteraction: true,
-      vibrate: [200, 100, 200]
-    };
-
-    if (data.actions && data.actions.length > 0) {
-      options.actions = data.actions.map(function(a) {
-        return { action: a.url, title: a.title };
-      });
+    if (event.data) {
+      data = event.data.json();
     }
-
-    event.waitUntil(
-      self.registration.showNotification(data.title || 'Notification', options)
-    );
   } catch (e) {
-    console.error('[PushHive SW] Push parse error:', e);
+    // iOS sometimes sends non-JSON payload
+    data = {
+      title: 'New Notification',
+      body: (event.data && event.data.text) ? event.data.text() : ''
+    };
   }
+
+  var options = {
+    body: data.body || '',
+    icon: data.icon || '/favicon.ico',
+    image: data.image || '',
+    badge: data.badge || '/favicon.ico',
+    data: {
+      url: data.url || '/',
+      campaignId: data.campaignId || '',
+      siteId: data.siteId || '',
+      utm: data.utm || {}
+    },
+    requireInteraction: false,
+    tag: data.campaignId || 'pushhive-' + Date.now()
+  };
+
+  if (data.actions && data.actions.length > 0) {
+    options.actions = data.actions.map(function(a) {
+      return { action: a.url, title: a.title };
+    });
+  }
+
+  // ALWAYS call showNotification inside waitUntil — iOS cancels subscription otherwise
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Notification', options)
+  );
 });
 
 self.addEventListener('notificationclick', function(event) {
@@ -514,7 +646,6 @@ self.addEventListener('notificationclick', function(event) {
   var data = event.notification.data || {};
   var url = event.action || data.url || '/';
 
-  // Track click
   trackEvent(data, 'clicked');
 
   event.waitUntil(
@@ -545,12 +676,11 @@ function trackEvent(data, type) {
       campaignId: data.campaignId,
       siteId: data.siteId,
       type: type,
-      utm: data.utm || {},
-      apiKey: data.apiKey || ''
-    })
-  }).catch(function(err) {
-    console.error('[PushHive SW] Track error:', err);
-  });
+      utm: data.utm || {}
+    }),
+    mode: 'cors',
+    credentials: 'omit'
+  }).catch(function() {});
 }
 `;
 }
